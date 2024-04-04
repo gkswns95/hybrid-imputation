@@ -13,7 +13,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
 1. **Clone this repository using the following command:**
     
     ```bash
-    $ git clone https://github.com/gkswns95/STRNN-DBHP.git](https://github.com/gkswns95/hybrid-imputation.git
+    $ git clone https://github.com/gkswns95/hybrid-imputation.git
     ```
 2. **Installation requirements using the following command:**
 
