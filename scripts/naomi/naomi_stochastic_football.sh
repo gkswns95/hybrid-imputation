@@ -1,0 +1,35 @@
+#!/bin/bash
+python train_naomi_gan.py \
+--trial 327 \
+--dataset football \
+--model NAOMI \
+--target_type imputation \
+--n_players 6 \
+--n_features 2 \
+--train_nfl \
+--valid_nfl \
+--rnn_dim 600 \
+--dec1_dim 400 \
+--dec2_dim 400 \
+--dec4_dim 400 \
+--dec8_dim 400 \
+--dec16_dim 400 \
+--n_layers 3 \
+--clip 10 \
+--pre_start_lr 1e-3 \
+--batch_size 64 \
+--stochastic \
+--discrim_rnn_dim 128 \
+--discrim_layers 1 \
+--policy_learning_rate 3e-6 \
+--discrim_learning_Rate 1e-3 \
+--pretrain_disc_iter 2000 \
+--draw_interval 200 \
+--max_iter_num 80000 \
+--cartesian_accel \
+--n_epochs 100 \
+--min_lr 1e-5 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 123 \
+--cuda \

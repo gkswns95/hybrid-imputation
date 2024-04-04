@@ -1,0 +1,27 @@
+python train.py \
+--trial 101 \
+--model ours \
+--target_type imputation \
+--n_players 11 \
+--n_features 6 \
+--pe_z_dim 16 \
+--pi_z_dim 16 \
+--rnn_dim 256 \
+--n_layers 2 \
+--n_heads 4 \
+--dropout 0.0 \
+--vel_pos_loss \
+--ppe \
+--fpe \
+--fpi \
+--transformer \
+--n_epochs 100 \
+--start_lr 5e-4 \
+--min_lr 1e-5 \
+--batch_size 32 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 100 \
+--cuda \
+--normalize \
+--flip_pitch \

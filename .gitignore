@@ -1,0 +1,16 @@
+plots/
+saved/
+backup_files/
+animations/
+debug_files/
+heatmap_plots/
+runs/
+__pycache__/
+# ignore files
+*.xml
+*.txt
+*.json
+*.npy
+*.csv
+*.pyc
+*.pickle
