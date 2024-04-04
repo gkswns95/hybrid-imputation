@@ -21,7 +21,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
     $ pip install -r requirments.txt
     ```
 ## Data Usage
-We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: **Google Drive**.
+We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/u/0/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn).
 
 - **Soccer Dataset (Metrica)**
     - The soccer data is provided by [Metrica Sports](https://metrica-sports.com). It includes trajectories for 22 players across 3 matches, sampled at 25Hz. We have downsampled the data to 10Hz and set a sequence length of 200, corresponding to 20 seconds of gameplay. The data preprocessing code is implemented in `datatools/metrica_data_processing.ipynb`, and the processed data used in our experiments can be downloaded from the Google Drive link provided above.
