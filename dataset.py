@@ -108,7 +108,7 @@ class SoccerDataset(Dataset):
                             episode_ball = episode_traces[ball_cols].values
                             if len(episode_traces) >= self.ws:
                                 ### debug ###
-                                val_epi_count += 1
+                                # val_epi_count += 1
                                 ### debug ###
                                 for i in range(0, len(episode_traces) - self.ws + 1, self.ws):
                                     if self.overlap:
@@ -300,7 +300,7 @@ class NBAdataset(Dataset):
         ### debug ###
         print(f"val_epi_count : {val_epi_count}")
         print(f"input_data : {input_data.shape}")
-        asd
+        # asd
         ### debug ###
 
     def __getitem__(self, i):
@@ -387,7 +387,7 @@ class NFLdataset(Dataset):
         ### debug ###
         print(f"val_epi_count : {val_epi_count}")
         print(f"input_data : {input_data.shape}")
-        asd
+        # asd
         ### debug ###
 
     def __getitem__(self, i):

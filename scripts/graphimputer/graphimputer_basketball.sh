@@ -1,7 +1,7 @@
 python train.py \
 --trial 9998 \
 --dataset basketball \
---model ours \
+--model graphimputer \
 --target_type imputation \
 --n_players 5 \
 --n_features 6 \
@@ -31,6 +31,8 @@ python train.py \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
+--var_dim 16 \
+--kld_weight_float 0.01 \
 --cuda \
 --normalize \
 --flip_pitch \

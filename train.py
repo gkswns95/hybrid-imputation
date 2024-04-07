@@ -191,6 +191,7 @@ if __name__ == "__main__":
         "save_new": args.save_new,
         "load_pre_train": args.load_pre_train,
         "freeze_pre_trained":  args.freeze_pre_trained,
+        "device": default_device
     }
 
     # Hyperparameters
