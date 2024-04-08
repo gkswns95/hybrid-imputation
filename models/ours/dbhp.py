@@ -42,18 +42,18 @@ class DBHP(nn.Module):
         self.model = dbhp_imputer(self.params)
 
     def forward(self, data, mode="train", device="cuda:0"):
-        # if mode == "test":
-        #     if self.params["dataset"] == "football": # Randomly permute player order
-        #         input_data = random_permutation(data[0], 6)
-        #     else:
-        #         input_data, _ = xy_sort_tensor(data[0], self.params["n_players"] * 2)
-        #         target_data = input_data.clone()
-        # else:
-        #     input_data = data[0]
-        #     target_data = data[1]
+        if mode == "test":
+            if self.params["dataset"] == "football": # Randomly permute player order
+                input_data = random_permutation(data[0], 6)
+            else:
+                input_data, sort_idxs = xy_sort_tensor(data[0], self.params["n_players"] * 2)
+                target_data = input_data.clone()
+        else:
+            input_data = data[0]
+            target_data = data[1]
         
-        input_data = data[0]
-        target_data = data[1]
+        # input_data = data[0]
+        # target_data = data[1]
 
         if self.params["dataset"] == "soccer":
             ball_data = data[2]
@@ -128,5 +128,14 @@ class DBHP(nn.Module):
             
         if mode == "test" and self.params["missing_pattern"] == "camera_simulate": # For section 5
             ret["polygon_points"] = poly_coords
+        
+        if mode == "test" and self.params["dataset"] != "football":
+            for key in pred_keys:
+                if key == "pred":
+                    ret[key] = xy_sort_tensor(ret[key], sort_idxs, self.params["n_players"] * 2, mode="restore")
+                else:
+                    ret[f"{key}_pred"] = xy_sort_tensor(ret[f"{key}_pred"], sort_idxs, self.params["n_players"] * 2, mode="restore")
+            ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, self.params["n_players"] * 2, mode="restore")
+            ret["mask"] = xy_sort_tensor(ret["mask"], sort_idxs, self.params["n_players"] * 2, mode="restore")
 
         return ret
