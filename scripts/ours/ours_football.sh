@@ -1,9 +1,9 @@
 python train.py \
---trial 9999 \
+--trial 3012 \
 --dataset football \
 --model ours \
 --target_type imputation \
---missing_pattern "player_wise" \
+--missing_pattern player_wise \
 --n_players 6 \
 --n_features 6 \
 --train_nfl \
@@ -17,7 +17,6 @@ python train.py \
 --dropout 0.0 \
 --physics_loss \
 --cartesian_accel \
---transformer \
 --fpe \
 --fpi \
 --train_hybrid \

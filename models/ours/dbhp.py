@@ -47,7 +47,7 @@ class DBHP(nn.Module):
                 input_data = random_permutation(data[0], 6)
             else:
                 input_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["n_players"] * 2)
-                target_data = input_data.clone()
+            target_data = input_data.clone()
         else:
             input_data = data[0]
             target_data = data[1]

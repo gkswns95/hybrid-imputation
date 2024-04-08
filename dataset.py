@@ -298,9 +298,9 @@ class NBAdataset(Dataset):
         self.target_data = torch.FloatTensor(target_data)
 
         ### debug ###
-        print(f"val_epi_count : {val_epi_count}")
-        print(f"input_data : {input_data.shape}")
-        asd
+        # print(f"val_epi_count : {val_epi_count}")
+        # print(f"input_data : {input_data.shape}")
+        # asd
         ### debug ###
 
     def __getitem__(self, i):
@@ -385,9 +385,9 @@ class NFLdataset(Dataset):
         self.target_data = torch.FloatTensor(target_data)
 
         ### debug ###
-        print(f"val_epi_count : {val_epi_count}")
-        print(f"input_data : {input_data.shape}")
-        asd
+        # print(f"val_epi_count : {val_epi_count}")
+        # print(f"input_data : {input_data.shape}")
+        # asd
         ### debug ###
 
     def __getitem__(self, i):

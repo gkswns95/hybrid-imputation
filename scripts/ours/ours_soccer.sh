@@ -1,5 +1,5 @@
 python train.py \
---trial 9999 \
+--trial 3000 \
 --dataset soccer \
 --model ours \
 --target_type imputation \
@@ -17,7 +17,6 @@ python train.py \
 --dropout 0.0 \
 --physics_loss \
 --cartesian_accel \
---transformer \
 --fpe \
 --fpi \
 --train_hybrid \
