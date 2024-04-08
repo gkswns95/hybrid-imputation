@@ -46,7 +46,7 @@ class DBHP(nn.Module):
             if self.params["dataset"] == "football": # Randomly permute player order
                 input_data = random_permutation(data[0], 6)
             else:
-                input_data, sort_idxs = xy_sort_tensor(data[0], self.params["n_players"] * 2)
+                input_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["n_players"] * 2)
                 target_data = input_data.clone()
         else:
             input_data = data[0]
