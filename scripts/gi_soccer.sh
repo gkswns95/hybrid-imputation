@@ -2,7 +2,7 @@
 python train.py \
 --trial 7238 \
 --dataset soccer \
---model graphimputer \
+--model graph_imputer \
 --target_type imputation \
 --n_players 11 \
 --n_features 6 \

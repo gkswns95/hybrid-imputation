@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from dataset import NBADasaset, NFLDataset, SoccerDataset
+from dataset import SportsDataset
 from models import load_model
 from models.nrtsi.utils import get_gap_lr_bs
 from models.utils import get_params_str, load_pretrained_model, num_trainable_params
@@ -52,23 +52,16 @@ def hyperparams_str(epoch, hp):
 
 
 # For one epoch
-def run_epoch(
-    model: nn.DataParallel,
-    optimizer: torch.optim.Adam,
-    epoch: int,
-    train=False,
-    print_every=50,
-    train_args=None,
-):
+def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, print_every=50, train_args=None):
     # torch.autograd.set_detect_anomaly(True)
     model.train() if train else model.eval()
 
-    loader = train_loader if train else test_loader
+    loader = train_loader if train else valid_loader
     n_batches = len(loader)
 
     loss_keys = ["total"]
     pred_keys = ["pred"]
-    if model.module.params["model"] == "ours":
+    if model.module.params["model"] == "dbhp":
         if model.module.params["n_features"] == 6:
             loss_keys += ["xy", "vel", "accel"]
         if model.module.params["physics_loss"]:
@@ -82,12 +75,12 @@ def run_epoch(
     dist_dict = {f"{key}_dist": [] for key in pred_keys}
 
     for batch_idx, data in enumerate(loader):
-        if model.module.params["model"] in ["ours", "brits", "naomi", "graphimputer"]:
+        if model.module.params["model"] in ["dbhp", "brits", "naomi", "graph_imputer"]:
             if train:
                 out = model(data, device=default_device)
             else:
                 with torch.no_grad():
-                    if model.module.params["model"] != "graphimputer":
+                    if model.module.params["model"] != "graph_imputer":
                         out = model(data, device=default_device)
                     else:
                         out = model.module.evaluate(data, device=default_device)
@@ -135,98 +128,27 @@ def run_epoch(
 parser = argparse.ArgumentParser()
 
 parser.add_argument("-t", "--trial", type=int, required=True)
-parser.add_argument(
-    "--dataset",
-    type=str,
-    required=False,
-    default="soccer",
-    help="soccer or basketball or football",
-)
-parser.add_argument("--model", type=str, required=True, default="ours")
-parser.add_argument("--target_type", type=str, required=False, default="imputation", help="imputation")
-parser.add_argument(
-    "--missing_pattern",
-    type=str,
-    required=False,
-    default="camera_simulate",
-    help="all_player or player_wise or camera_simulate",
-)
-parser.add_argument(
-    "--flip_pitch",
-    action="store_true",
-    default=False,
-    help="augment data by flipping the pitch",
-)
+parser.add_argument("--dataset", type=str, required=True, default="soccer", help="soccer, basketball, afootball")
+parser.add_argument("--model", type=str, required=True, default="dbhp")
+parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, indep, camera")
 parser.add_argument("--n_features", type=int, required=False, default=2, help="num features")
-
-parser.add_argument(
-    "--train_metrica",
-    action="store_true",
-    default=False,
-    help="training on metrica data",
-)
-parser.add_argument(
-    "--valid_metrica",
-    action="store_true",
-    default=False,
-    help="validating on metrica data",
-)
-parser.add_argument("--train_nba", action="store_true", default=False, help="training on NBA data")
-parser.add_argument("--valid_nba", action="store_true", default=False, help="validating on NBA data")
-parser.add_argument("--train_nfl", action="store_true", default=False, help="training on NFL data")
-parser.add_argument("--valid_nfl", action="store_true", default=False, help="validating on NFL data")
+parser.add_argument("--normalize", action="store_true", default=False, help="normalize data")
+parser.add_argument("--flip_pitch", action="store_true", default=False, help="augment data by flipping the pitch")
 
 parser.add_argument("--n_epochs", type=int, required=False, default=200, help="num epochs")
 parser.add_argument("--batch_size", type=int, required=False, default=32, help="batch size")
-parser.add_argument(
-    "--start_lr",
-    type=float,
-    required=False,
-    default=0.0001,
-    help="starting learning rate",
-)
+parser.add_argument("--start_lr", type=float, required=False, default=0.0001, help="starting learning rate")
 parser.add_argument("--min_lr", type=float, required=False, default=0.0001, help="minimum learning rate")
 parser.add_argument("--clip", type=float, required=False, default=10, help="gradient clipping")
-parser.add_argument(
-    "--print_every_batch",
-    type=int,
-    required=False,
-    default=50,
-    help="periodically print performance",
-)
-parser.add_argument(
-    "--save_every_epoch",
-    type=int,
-    required=False,
-    default=10,
-    help="periodically save model",
-)
-parser.add_argument(
-    "--pretrain_time",
-    type=int,
-    required=False,
-    default=0,
-    help="num epochs to train macro policy",
-)
+parser.add_argument("--print_every_batch", type=int, required=False, default=50, help="periodically print performance")
+parser.add_argument("--save_every_epoch", type=int, required=False, default=10, help="periodically save model")
+parser.add_argument("--pretrain_time", type=int, required=False, default=0, help="num epochs to train macro policy")
 parser.add_argument("--seed", type=int, required=False, default=128, help="PyTorch random seed")
 parser.add_argument("--cuda", action="store_true", default=False, help="use GPU")
-parser.add_argument(
-    "--cont",
-    action="store_true",
-    default=False,
-    help="continue training previous best model",
-)
+parser.add_argument("--cont", action="store_true", default=False, help="continue training the previous bast model")
 parser.add_argument("--best_loss", type=float, required=False, default=0, help="best test loss")
-parser.add_argument("--normalize", action="store_true", default=False, help="normalize data")
-parser.add_argument("--load_saved", action="store_true", default=False, help="load saved data")
-parser.add_argument("--save_new", action="store_true", default=False, help="save prcessed data")
-parser.add_argument("--load_pre_train", type=int, default=0, help="Load pre-trained model")
-parser.add_argument(
-    "--freeze_pre_trained",
-    action="store_true",
-    default=0,
-    help="Freeze pre-trained parameters",
-)
+parser.add_argument("--load_pretrained", type=int, default=0)
+parser.add_argument("--freeze_pretrained", action="store_true", default=0)
 args, _ = parser.parse_known_args()
 
 if __name__ == "__main__":
@@ -239,26 +161,17 @@ if __name__ == "__main__":
         "dataset": args.dataset,
         "n_epochs": args.n_epochs,
         "model": args.model,
-        "target_type": args.target_type,
-        "flip_pitch": args.flip_pitch,
         "n_features": args.n_features,
-        "train_metrica": args.train_metrica,
-        "valid_metrica": args.valid_metrica,
-        "train_nba": args.train_nba,
-        "valid_nba": args.valid_nba,
-        "train_nfl": args.train_nfl,
-        "valid_nfl": args.valid_nfl,
+        "normalize": args.normalize,
+        "flip_pitch": args.flip_pitch,
         "batch_size": args.batch_size,
         "start_lr": args.start_lr,
         "min_lr": args.min_lr,
         "seed": args.seed,
         "cuda": args.cuda,
         "best_loss": args.best_loss,
-        "normalize": args.normalize,
-        "load_saved": args.load_saved,
-        "save_new": args.save_new,
-        "load_pre_train": args.load_pre_train,
-        "freeze_pre_trained": args.freeze_pre_trained,
+        "load_pretrained": args.load_pretrained,
+        "freeze_pretrained": args.freeze_pretrained,
     }
 
     # Hyperparameters
@@ -275,13 +188,8 @@ if __name__ == "__main__":
 
     # Load model
     model = load_model(args.model, params, parser).to(default_device)
-    if params["load_pre_train"]:
-        model = load_pretrained_model(
-            model,
-            params,
-            freeze=params["freeze_pre_trained"],
-            trial_num=params["load_pre_train"],
-        )
+    if args.load_pretrained:
+        model = load_pretrained_model(model, params, freeze=args.load_pretrained)
     model = nn.DataParallel(model, device_ids=[0])
 
     # Update params with model parameters
@@ -305,7 +213,7 @@ if __name__ == "__main__":
         print("{}/model/{}_state_dict_best.pt".format(save_path, args.model))
         model.module.load_state_dict(state_dict)
     else:
-        title = f"{args.trial} {args.target_type} | {args.model}"
+        title = f"{args.trial} | {args.model}"
         print_keys = ["flip_pitch", "n_features", "batch_size", "start_lr"]
 
         printlog(title)
@@ -317,81 +225,72 @@ if __name__ == "__main__":
     print()
     print("Generating datasets...")
 
-    assert args.train_metrica or args.train_nba or args.train_nfl
-    train_paths = []
-
-    if args.train_metrica:  # Soccer (Metrica) datasets
+    if args.dataset == "soccer":  # Soccer (Metrica) datasets
         metrica_files = ["match1.csv", "match2.csv", "match3_valid.csv"]
         metrica_paths = [f"data/metrica_traces/{f}" for f in metrica_files]
-        train_paths += metrica_paths[:-1]
-    if args.train_nba:  # Basketball (NBA) dataset
+        train_paths = metrica_paths[:-1]
+        valid_paths = metrica_paths[-1:]
+
+        window_size = 200
+        episode_min_len = 100
+        train_stride = 5
+
+    elif args.dataset == "basketball":  # Basketball (NBA) dataset
         nba_files = os.listdir("data/nba_traces")
         nba_paths = [f"data/nba_traces/{f}" for f in nba_files]
         nba_paths.sort()
-        train_paths += nba_paths[:70]
-    if args.train_nfl:  # American football (NFL) dataset
-        nfl_files = os.listdir("data/nfl_traces")
+        train_paths = nba_paths[:70]
+        valid_paths = nba_paths[70:90]
+
+        window_size = 200
+        episode_min_len = 100
+        train_stride = 200
+
+    else:  # American football (NFL) dataset
         nfl_paths = ["data/nfl_traces/nfl_train.csv", "data/nfl_traces/nfl_test.csv"]
-        train_paths += nfl_paths[:1]
+        train_paths = nfl_paths[:-1]
+        valid_paths = nfl_paths[-1:]
 
-    assert args.valid_metrica or args.valid_nba or args.valid_nfl
-    valid_paths = []
+        window_size = 50
+        episode_min_len = 50
+        train_stride = 5
 
-    if args.valid_metrica:
-        valid_paths += metrica_paths[-1:]
-    if args.valid_nba:
-        valid_paths += nba_paths[70:90]
-    if args.valid_nfl:
-        valid_paths += nfl_paths[1:]
-
-    nw = len(model.device_ids) * 4
-    if args.dataset == "soccer":
-        dataset_class = SoccerDataset
-    elif args.dataset == "basketball":
-        dataset_class = NBADasaset
-    elif args.dataset == "football":
-        dataset_class = NFLDataset
-    else:
-        raise ValueError("Unsupported dataset: {}".format(args.dataset))
-
-    train_dataset = dataset_class(
+    train_dataset = SportsDataset(
+        sports=args.dataset,
         data_paths=train_paths,
-        target_type=args.target_type,
-        train=True,
-        load_saved=args.load_saved,
-        save_new=args.save_new,
         n_features=args.n_features,
-        cartesian_accel=params["cartesian_accel"],
+        window_size=window_size,
+        episode_min_len=episode_min_len,
+        stride=train_stride,
         normalize=args.normalize,
         flip_pitch=args.flip_pitch,
-        overlap=True if args.dataset == "soccer" else False,
     )
-    test_dataset = dataset_class(
+    valid_dataset = SportsDataset(
+        sports=args.dataset,
         data_paths=valid_paths,
-        target_type=args.target_type,
-        train=False,
-        load_saved=args.load_saved,
-        save_new=args.save_new,
         n_features=args.n_features,
-        cartesian_accel=params["cartesian_accel"],
+        window_size=window_size,
+        episode_min_len=episode_min_len,
+        stride=window_size,
         normalize=args.normalize,
-        flip_pitch=True,
-        overlap=False,
+        flip_pitch=False,
     )
 
+    n_workers = len(model.device_ids) * 4
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=nw,
+        num_workers=n_workers,
         pin_memory=True,
     )
-    if args.dataset in ["soccer", "football"]:
-        test_bs = 1
-        # test_bs = args.batch_size
-    elif args.dataset == "basketball":
-        test_bs = args.batch_size
-    test_loader = DataLoader(test_dataset, batch_size=test_bs, shuffle=True, num_workers=nw, pin_memory=True)
+    valid_loader = DataLoader(
+        valid_dataset,
+        batch_size=1 if args.dataset != "basketball" else args.batch_size,
+        shuffle=True,
+        num_workers=n_workers,
+        pin_memory=True,
+    )
 
     # Train loop
     best_test_loss = args.best_loss
@@ -400,7 +299,7 @@ if __name__ == "__main__":
     lr = max(args.start_lr, args.min_lr)
 
     train_data_len = f"Train data len : {len(train_dataset)}"
-    test_data_len = f"Test data len : {len(test_dataset)}"
+    test_data_len = f"Test data len : {len(valid_dataset)}"
     printlog(train_data_len)
     printlog(test_data_len)
 
@@ -442,16 +341,10 @@ if __name__ == "__main__":
             else:
                 epochs_since_best += 1
 
-        train_losses = run_epoch(
-            model,
-            optimizer,
-            epoch,
-            train=True,
-            print_every=print_every,
-            train_args=train_args,
-        )
+        train_losses = run_epoch(model, optimizer, train=True, print_every=print_every, train_args=train_args)
         printlog("Train:\t" + loss_str(train_losses))
-        test_losses = run_epoch(model, optimizer, epoch, train=False, train_args=train_args)
+
+        test_losses = run_epoch(model, optimizer, train=False, train_args=train_args)
         printlog("Test:\t" + loss_str(test_losses))
 
         # Write learning curve on tensorboard

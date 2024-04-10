@@ -1,7 +1,7 @@
 python train.py \
 --trial 3003 \
 --dataset basketball \
---model ours \
+--model dbhp \
 --target_type imputation \
 --missing_pattern all_player \
 --n_players 5 \

@@ -1,17 +1,16 @@
-CUDA_VISIBLE_DEVICES=6 \
 python train.py \
---trial 3000 \
---dataset soccer \
---model ours \
+--trial 3012 \
+--dataset football \
+--model dbhp \
 --target_type imputation \
---missing_pattern camera_simulate \
---n_players 11 \
+--missing_pattern player_wise \
+--n_players 6 \
 --n_features 6 \
---train_metrica \
---valid_metrica \
+--train_nfl \
+--valid_nfl \
 --pe_z_dim 64 \
 --pi_z_dim 32 \
---rnn_dim 256 \
+--rnn_dim 512 \
 --hybrid_rnn_dim 512 \
 --n_layers 2 \
 --n_heads 4 \
@@ -30,5 +29,4 @@ python train.py \
 --save_every_epoch 50 \
 --seed 100 \
 --cuda \
---normalize \
 --flip_pitch \

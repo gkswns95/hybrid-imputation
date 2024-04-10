@@ -1,7 +1,7 @@
 python train.py \
 --trial 81 \
 --dataset football \
---model graphimputer \
+--model graph_imputer \
 --target_type imputation \
 --n_players 3 \
 --n_features 6 \

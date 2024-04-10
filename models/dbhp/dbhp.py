@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.strnn.dbhp_imputer import DBHPImputer
-from models.strnn.utils import calc_static_hybrid_pred, calc_static_hybrid_pred2
+from models.dbhp.dbhp_imputer import DBHPImputer
+from models.dbhp.utils import calc_static_hybrid_pred, calc_static_hybrid_pred2
 from models.utils import *
 
 
@@ -43,24 +43,19 @@ class DBHP(nn.Module):
 
     def forward(self, data, mode="train", device="cuda:0"):
         if mode == "test":
-            if self.params["dataset"] == "football":  # Randomly permute player order
-                input_data = random_permutation(data[0], 6)
+            if self.params["dataset"] == "afootball":  # randomly permute the player order
+                player_data = random_permutation(data[0], 6)
             else:
-                input_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["n_players"] * 2)
-            target_data = input_data.clone()
+                player_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["n_players"] * 2)
         else:
-            input_data = data[0]
-            target_data = data[1]
-
-        # input_data = data[0]
-        # target_data = data[1]
+            player_data = data[0]
 
         if self.params["dataset"] == "soccer":
-            ball_data = data[2]
+            ball_data = data[1]
         else:
             ball_data = None
 
-        input_dict = {"target": target_data, "ball": ball_data}
+        input_dict = {"target": player_data, "ball": ball_data}
 
         bs, seq_len = input_dict["target"].shape[:2]
 
@@ -73,7 +68,7 @@ class DBHP(nn.Module):
             dataset=self.params["dataset"],
         )
 
-        if self.params["missing_pattern"] == "camera_simulate":
+        if self.params["missing_pattern"] == "camera":
             deltas_f, deltas_b = compute_deltas(mask)
 
             mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, agents]
@@ -100,7 +95,7 @@ class DBHP(nn.Module):
         if self.params["cuda"]:
             mask, deltas_f, deltas_b = mask.to(device), deltas_f.to(device), deltas_b.to(device)
 
-        masked_input = input_data * mask
+        masked_input = player_data * mask
 
         input_dict["mask"] = mask
         input_dict["deltas_f"] = deltas_f
@@ -139,10 +134,10 @@ class DBHP(nn.Module):
                     dataset=self.params["dataset"],
                 )
 
-        if mode == "test" and self.params["missing_pattern"] == "camera_simulate":  # For section 5
+        if mode == "test" and self.params["missing_pattern"] == "camera":  # for section 5
             ret["polygon_points"] = poly_coords
 
-        if mode == "test" and self.params["dataset"] != "football":
+        if mode == "test" and self.params["dataset"] != "afootball":
             for key in pred_keys:
                 if key == "pred":
                     ret[key] = xy_sort_tensor(ret[key], sort_idxs, self.params["n_players"] * 2, mode="restore")

@@ -17,7 +17,7 @@ from scipy.ndimage import shift
 from torch.autograd import Variable
 from tqdm import tqdm
 
-from dataset import NFLDataset
+from dataset import SportsDataset
 from datatools.trace_helper import TraceHelper
 from models.utils import *
 
@@ -329,7 +329,7 @@ class NFLDataHelper(TraceHelper):
         random.seed(1234)
         torch.manual_seed(1234)
 
-        test_dataset = NFLDataset(
+        test_dataset = SportsDataset(
             data_paths=["data/nfl_traces/nfl_test.csv"],
             target_type="imputation",
             train=False,

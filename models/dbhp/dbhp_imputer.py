@@ -7,7 +7,7 @@ from torch.autograd import Variable
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn.parameter import Parameter
 
-from models.strnn.utils import derivative_based_pred
+from models.dbhp.utils import derivative_based_pred
 from models.utils import calc_coherence_loss, nll_gauss, reshape_tensor, sample_gauss
 from set_transformer.model import SetTransformer
 
@@ -122,7 +122,6 @@ class DBHPImputer(nn.Module):
         n_layers = params["n_layers"]
 
         self.dataset = params["dataset"]
-        self.target_type = params["target_type"]
         self.n_features = params["n_features"]  # number of features per player
         self.n_players = params["n_players"]  # number of agents per team
         self.n_components = self.n_players  # total number of agents
