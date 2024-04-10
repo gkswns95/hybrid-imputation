@@ -1,8 +1,8 @@
-from brits.brits import BRITS
-from graphimputer.graphimputer import BidirectionalGraphImputer
-from naomi.naomi import NAOMI
-from nrtsi.nrtsi import NRTSI
-from strnn.dbhp import DBHP
+from models.brits.brits import BRITS
+from models.graphimputer.graphimputer import BidirectionalGraphImputer
+from models.naomi.naomi import NAOMI
+from models.nrtsi.nrtsi import NRTSI
+from models.strnn.dbhp import DBHP
 
 # from .baselines.social_lstm.social_lstm import SOCIALLSTM
 

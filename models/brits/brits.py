@@ -1,12 +1,13 @@
 import random
-import torch
-import numpy as np
-import torch.nn as nn
 
+import numpy as np
+import torch
+import torch.nn as nn
 from torch.autograd import Variable
 
-from models.baselines.brits.rits import RITS
+from models.brits.rits import RITS
 from models.utils import *
+
 
 class BRITS(nn.Module):
     def __init__(self, params, parser=None):
@@ -38,13 +39,13 @@ class BRITS(nn.Module):
         dataset = self.params["dataset"]
 
         if self.params["xy_sort"]:
-            input_data, sort_idxs = xy_sort_tensor(data[0], n_players=total_players) # [bs, time, x_dim]
+            input_data, sort_idxs = xy_sort_tensor(data[0], n_players=total_players)  # [bs, time, x_dim]
             target_data = input_data.clone()
         else:
-            if dataset == "football": # Randomly permute player order for NFL dataset.
+            if dataset == "football":  # Randomly permute player order for NFL dataset.
                 data[0] = random_permutation(data[0], total_players)
                 data[1] = data[0].clone()
-            input_data = data[0] # [bs, time, x_dim]
+            input_data = data[0]  # [bs, time, x_dim]
             target_data = data[1]
 
         if self.params["dataset"] == "soccer":
@@ -59,19 +60,20 @@ class BRITS(nn.Module):
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
             inputs=input_dict,
-            mode=self.params["missing_pattern"], 
-            ws=seq_len, 
+            mode=self.params["missing_pattern"],
+            ws=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
-            dataset=dataset)
-        
+            dataset=dataset,
+        )
+
         if self.params["missing_pattern"] == "camera_simulate":
             time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
-            mask = torch.tensor(mask, dtype=torch.float32) # [bs, time, n_players]
+            mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, n_players]
             mask = torch.repeat_interleave(mask, n_features, dim=-1)
             time_gap = torch.repeat_interleave(time_gap, n_features, dim=-1)
         else:
             time_gap = time_interval(mask, list(range(seq_len)), mode="block")
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_players]
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
             mask = torch.repeat_interleave(mask, n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
             time_gap = torch.repeat_interleave(time_gap, n_features, dim=-1).expand(bs, -1, -1)
 
@@ -79,9 +81,9 @@ class BRITS(nn.Module):
             mask, time_gap = mask.to(device), time_gap.to(device)
 
         input_dict["mask"] = mask
-        input_dict["input"] = input_data * mask # masking missing values
+        input_dict["input"] = input_data * mask  # masking missing values
         input_dict["delta"] = time_gap
-        
+
         ret_f = self.rits_f(input_dict)
         ret_b = self.reverse(self.rits_b(self.reverse(input_dict)))
         ret = self.merge_ret(ret_f, ret_b, mode)
@@ -104,7 +106,7 @@ class BRITS(nn.Module):
         target = ret_f["target"]
         mask = ret_f["mask"]
 
-        aggfunc = "mean" if mode=="train" else "sum"
+        aggfunc = "mean" if mode == "train" else "sum"
         pos_dist = calc_trace_dist(pred, target, mask, aggfunc=aggfunc, dataset=self.params["dataset"])
 
         ret_f["total_loss"] = loss
@@ -123,7 +125,7 @@ class BRITS(nn.Module):
             if tensor_.dim() <= 1:
                 return tensor_
             indices = range(tensor_.size()[1])[::-1]
-            indices = Variable(torch.LongTensor(indices), requires_grad = False)
+            indices = Variable(torch.LongTensor(indices), requires_grad=False)
 
             indices = indices.to(device)
 

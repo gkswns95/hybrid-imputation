@@ -4,11 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.ours.dbhp_imputer import DBHPImputer
-from models.ours.derivative_prediction_utils import (
-    calc_static_hybrid_pred,
-    calc_static_hybrid_pred2,
-)
+from models.strnn.dbhp_imputer import DBHPImputer
+from models.strnn.utils import calc_static_hybrid_pred, calc_static_hybrid_pred2
 from models.utils import *
 
 

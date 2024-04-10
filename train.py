@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from dataset import NBADasaset, NFLDataset, SoccerDataset
 from models import load_model
-from models.nrtsi.nrtsi_utils import get_gap_lr_bs
+from models.nrtsi.utils import get_gap_lr_bs
 from models.utils import get_params_str, load_pretrained_model, num_trainable_params
 
 # from torch.utils.tensorboard import SummaryWriter
@@ -317,27 +317,21 @@ if __name__ == "__main__":
     print()
     print("Generating datasets...")
 
-    # Soccer datasets (Metrica)
-    metrica_files = ["match1.csv", "match2.csv", "match3_valid.csv"]
-    metrica_paths = [f"data/metrica_traces/{f}" for f in metrica_files]
-
-    # Basketball dataset (NBA)
-    nba_files = os.listdir("data/nba_traces")
-    nba_paths = [f"data/nba_traces/{f}" for f in nba_files]
-    nba_paths.sort()
-
-    # Football datasets (NFL)
-    nfl_files = os.listdir("data/nfl_traces")
-    nfl_paths = ["data/nfl_traces/nfl_train.csv", "data/nfl_traces/nfl_test.csv"]
-
     assert args.train_metrica or args.train_nba or args.train_nfl
     train_paths = []
 
-    if args.train_metrica:
+    if args.train_metrica:  # Soccer (Metrica) datasets
+        metrica_files = ["match1.csv", "match2.csv", "match3_valid.csv"]
+        metrica_paths = [f"data/metrica_traces/{f}" for f in metrica_files]
         train_paths += metrica_paths[:-1]
-    if args.train_nba:
+    if args.train_nba:  # Basketball (NBA) dataset
+        nba_files = os.listdir("data/nba_traces")
+        nba_paths = [f"data/nba_traces/{f}" for f in nba_files]
+        nba_paths.sort()
         train_paths += nba_paths[:70]
-    if args.train_nfl:
+    if args.train_nfl:  # American football (NFL) dataset
+        nfl_files = os.listdir("data/nfl_traces")
+        nfl_paths = ["data/nfl_traces/nfl_train.csv", "data/nfl_traces/nfl_test.csv"]
         train_paths += nfl_paths[:1]
 
     assert args.valid_metrica or args.valid_nba or args.valid_nfl

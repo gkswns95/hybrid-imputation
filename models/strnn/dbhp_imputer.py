@@ -7,7 +7,7 @@ from torch.autograd import Variable
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn.parameter import Parameter
 
-from models.ours.derivative_prediction_utils import derivative_based_pred
+from models.strnn.utils import derivative_based_pred
 from models.utils import calc_coherence_loss, nll_gauss, reshape_tensor, sample_gauss
 from set_transformer.model import SetTransformer
 

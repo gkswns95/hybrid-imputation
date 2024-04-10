@@ -1,3 +1,4 @@
+CUDA_VISIBLE_DEVICES=6 \
 python train.py \
 --trial 3000 \
 --dataset soccer \

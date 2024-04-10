@@ -1,13 +1,15 @@
-''' Define the Transformer model '''
-import numpy as np
+""" Define the Transformer model """
+
 import math
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class ScaledDotProductAttention(nn.Module):
-    ''' Scaled Dot-Product Attention '''
+    """Scaled Dot-Product Attention"""
 
     def __init__(self, temperature, attn_dropout=0.0):
         super().__init__()
@@ -25,8 +27,9 @@ class ScaledDotProductAttention(nn.Module):
 
         return output, attn
 
+
 class MultiHeadAttention(nn.Module):
-    ''' Multi-Head Attention module '''
+    """Multi-Head Attention module"""
 
     def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1):
         super().__init__()
@@ -40,10 +43,9 @@ class MultiHeadAttention(nn.Module):
         self.w_vs = nn.Linear(d_model, n_head * d_v, bias=False)
         self.fc = nn.Linear(n_head * d_v, d_model, bias=False)
 
-        self.attention = ScaledDotProductAttention(temperature=d_k ** 0.5, attn_dropout=0.0)
+        self.attention = ScaledDotProductAttention(temperature=d_k**0.5, attn_dropout=0.0)
 
         self.dropout = nn.Dropout(dropout)
-
 
     def forward(self, q, k, v, mask=None):
 
@@ -60,7 +62,7 @@ class MultiHeadAttention(nn.Module):
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
         if mask is not None:
-            mask = mask.unsqueeze(1)   # For head axis broadcasting.
+            mask = mask.unsqueeze(1)  # For head axis broadcasting.
 
         q, attn = self.attention(q, k, v, mask=mask)
 
@@ -70,13 +72,14 @@ class MultiHeadAttention(nn.Module):
         q = self.dropout(self.fc(q))
         return q, attn
 
+
 class PositionwiseFeedForward(nn.Module):
-    ''' A two-feed-forward-layer module '''
+    """A two-feed-forward-layer module"""
 
     def __init__(self, d_in, d_hid, dropout=0.1):
         super().__init__()
-        self.w_1 = nn.Linear(d_in, d_hid) # position-wise
-        self.w_2 = nn.Linear(d_hid, d_in) # position-wise
+        self.w_1 = nn.Linear(d_in, d_hid)  # position-wise
+        self.w_2 = nn.Linear(d_hid, d_in)  # position-wise
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -84,29 +87,33 @@ class PositionwiseFeedForward(nn.Module):
         x = self.dropout(x)
         return x
 
+
 class Adapter(nn.Module):
-    ''' Adapter Network '''
+    """Adapter Network"""
+
     def __init__(self, d_model):
         super(Adapter, self).__init__()
         self.d_model = d_model
         self.fc1 = nn.Linear(d_model, d_model // 8)
         self.fc2 = nn.Linear(d_model // 8, d_model)
         self.weight_init()
-    
+
     def weight_init(self):
         nn.init.xavier_uniform_(self.fc1.weight, 1e-4)
         nn.init.xavier_uniform_(self.fc2.weight, 1e-4)
         nn.init.zeros_(self.fc1.bias)
         nn.init.zeros_(self.fc2.bias)
-    
+
     def forward(self, x):
         residual = x
         x = self.fc2(F.relu(self.fc1(x)))
         x += residual
         return x
 
+
 class EncoderLayer(nn.Module):
-    ''' Compose with two layers '''
+    """Compose with two layers"""
+
     def __init__(self, d_model, d_inner, n_head, d_k, d_v):
         super(EncoderLayer, self).__init__()
 
@@ -118,14 +125,14 @@ class EncoderLayer(nn.Module):
         self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=self.dropout)
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
-        
+
         if self.adapter:
             multi_res_adapter_1 = dict()
             multi_res_adapter_2 = dict()
             i = 1
             while i < 256:
-                multi_res_adapter_1[str(int(math.log(i+1,2)))] = Adapter(d_model)
-                multi_res_adapter_2[str(int(math.log(i+1,2)))] = Adapter(d_model)
+                multi_res_adapter_1[str(int(math.log(i + 1, 2)))] = Adapter(d_model)
+                multi_res_adapter_2[str(int(math.log(i + 1, 2)))] = Adapter(d_model)
                 i *= 2
             self.multi_res_adapter_1 = nn.ModuleDict(multi_res_adapter_1)
             self.multi_res_adapter_2 = nn.ModuleDict(multi_res_adapter_2)
@@ -134,73 +141,78 @@ class EncoderLayer(nn.Module):
         residual = enc_input
         if self.use_layer_norm:
             enc_input = self.layer_norm_1(enc_input)
-        enc_output, enc_slf_attn = self.slf_attn(
-            enc_input, enc_input, enc_input, mask=slf_attn_mask)
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
         if self.adapter:
-            enc_output = self.multi_res_adapter_1[str(math.floor(math.log(gap+1, 2)))](enc_output)
+            enc_output = self.multi_res_adapter_1[str(math.floor(math.log(gap + 1, 2)))](enc_output)
         enc_output += residual
         residual = enc_output
         if self.use_layer_norm:
             enc_output = self.layer_norm_2(enc_output)
         enc_output = self.pos_ffn(enc_output)
         if self.adapter:
-            enc_output = self.multi_res_adapter_2[str(math.floor(math.log(gap+1, 2)))](enc_output)
+            enc_output = self.multi_res_adapter_2[str(math.floor(math.log(gap + 1, 2)))](enc_output)
         enc_output += residual
         return enc_output, enc_slf_attn
 
+
 class TimeEncoding(nn.Module):
-    ''' time encoding from paper Set Functions for Time Series'''
+    """time encoding from paper Set Functions for Time Series"""
+
     def __init__(self, max_time_scale, time_enc_dim):
         super(TimeEncoding, self).__init__()
         self.max_time = max_time_scale
         self.n_dim = time_enc_dim
         self._num_timescales = self.n_dim // 2
-    
+
     def get_timescales(self):
         timescales = self.max_time ** np.linspace(0, 1, self._num_timescales)
         return timescales[None, None, :]
 
     def forward(self, times):
-        ''' times has shape [bs, T, 1] '''
+        """times has shape [bs, T, 1]"""
         timescales = torch.tensor(self.get_timescales()).to(times.device)
         scaled_time = times.float() / timescales
-        
+
         signal = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=-1)
         return signal
 
+
 class MercerTimeEncoding(nn.Module):
-    '''Self-attention with Functional Time Representation Learning'''
+    """Self-attention with Functional Time Representation Learning"""
+
     def __init__(self, time_dim, expand_dim):
         super().__init__()
         self.time_dim = time_dim
         self.expand_dim = expand_dim
         self.init_period_base = nn.Parameter(torch.linspace(0, 8, time_dim))
-        self.basis_expan_var = torch.empty(time_dim, 2*expand_dim)
+        self.basis_expan_var = torch.empty(time_dim, 2 * expand_dim)
         nn.init.xavier_uniform_(self.basis_expan_var)
         self.basis_expan_var = nn.Parameter(self.basis_expan_var)
         self.basis_expan_var_bias = nn.Parameter(torch.zeros([time_dim]))
-    
+
     def forward(self, t):
-        ''' t has shape [batch size, seq_len, 1]'''
-        expand_t = t.repeat(1,1,self.time_dim)
-        period_var = 10 ** self.init_period_base
-        period_var = period_var[:, None].repeat(1, self.expand_dim) # [time_dim, expand_dim]
-        expand_coef = torch.range(1, self.expand_dim)[None, :].float().cuda() # [1, expand_dim]
+        """t has shape [batch size, seq_len, 1]"""
+        expand_t = t.repeat(1, 1, self.time_dim)
+        period_var = 10**self.init_period_base
+        period_var = period_var[:, None].repeat(1, self.expand_dim)  # [time_dim, expand_dim]
+        expand_coef = torch.range(1, self.expand_dim)[None, :].float().cuda()  # [1, expand_dim]
         freq_var = 1 / period_var
         freq_var = freq_var * expand_coef
-        sin_enc = torch.sin(expand_t[:,:,:,None] * freq_var[None, None, :, :])
-        cos_enc = torch.cos(expand_t[:,:,:,None] * freq_var[None, None, :, :])
+        sin_enc = torch.sin(expand_t[:, :, :, None] * freq_var[None, None, :, :])
+        cos_enc = torch.cos(expand_t[:, :, :, None] * freq_var[None, None, :, :])
         time_enc = torch.cat([sin_enc, cos_enc], dim=-1) * self.basis_expan_var[None, None, :, :]
         time_enc = time_enc.sum(-1) + self.basis_expan_var_bias[None, None, :]
         return time_enc
 
+
 class NRTSIImputer(nn.Module):
-    ''' A encoder model with self attention mechanism. '''
+    """A encoder model with self attention mechanism."""
+
     def __init__(self, params):
         super().__init__()
 
-        self.n_players = params["n_players"] # Number of players per each team
-        
+        self.n_players = params["n_players"]  # Number of players per each team
+
         if params["missing_pattern"] == "player_wise":
             self.x_dim = params["n_features"]
             self.y_dim = params["n_features"]
@@ -229,7 +241,7 @@ class NRTSIImputer(nn.Module):
         self.confidence = 0
         self.mercer = 0
         self.use_mask = 1
-        
+
         if not self.mercer:
             self.position_enc = TimeEncoding(self.max_time_scale, self.time_enc_dim)
             td = self.time_enc_dim
@@ -237,53 +249,73 @@ class NRTSIImputer(nn.Module):
             self.position_enc = MercerTimeEncoding(time_dim=self.time_dim, expand_dim=self.expand_dim)
             td = self.time_dim
         self.dropout = nn.Dropout(p=0.0)
-        self.layer_stack = nn.ModuleList([
-            EncoderLayer(self.d_model, self.d_inner, self.n_head, self.d_k, self.d_v)
-            for _ in range(self.n_layers)])
+        self.layer_stack = nn.ModuleList(
+            [EncoderLayer(self.d_model, self.d_inner, self.n_head, self.d_k, self.d_v) for _ in range(self.n_layers)]
+        )
         self.layer_norm = nn.LayerNorm(self.d_model, eps=1e-6)
 
         self.output_proj = nn.Linear(self.d_model, self.y_dim)
-        # self.output_proj = nn.Linear(self.d_model, self.y_dim) if self.confidence else nn.Linear(self.d_model, self.y_dim)
+        # self.output_proj = nn.Linear(self.d_model, self.y_dim)
+        # if self.confidence else nn.Linear(self.d_model, self.y_dim)
         # if params["dataset"] == "football":
         #     self.output_proj = nn.Linear(self.d_model, self.y_dim * 2)
         # else:
         #     self.output_proj = nn.Linear(self.d_model, self.y_dim)
-        
+
         if self.use_gap_encoding:
             self.input_proj = nn.Linear(self.x_dim + 2 * td, self.d_model)
         else:
             self.input_proj = nn.Linear(self.x_dim + td + 1, self.d_model)
+
     def forward(self, obs_data, obs_time, imput_time, gap, src_mask=None, return_attns=False):
-        ''' 
-            obs_data has shape [batch_size, obs_len, x_dim]
-            obs_time has shape [batch_size, obs_len, 1]
-            imput_time has shape [batch_size, imput_len, 1]
-            gap is a scalar
-        '''
+        """
+        obs_data has shape [batch_size, obs_len, x_dim]
+        obs_time has shape [batch_size, obs_len, 1]
+        imput_time has shape [batch_size, imput_len, 1]
+        gap is a scalar
+        """
         device = obs_data.device
-        
+
         num_obs = obs_data.shape[1]
         num_imp = imput_time.shape[1]
         if self.use_mask:
-            mask = torch.cat([torch.cat([torch.ones(num_obs, num_obs), torch.ones(num_obs, num_imp)], dim=1), torch.cat([torch.ones(num_imp, num_obs), torch.eye(num_imp)], dim=1)], dim=0).unsqueeze(0).to(device)
+            mask = (
+                torch.cat(
+                    [
+                        torch.cat([torch.ones(num_obs, num_obs), torch.ones(num_obs, num_imp)], dim=1),
+                        torch.cat([torch.ones(num_imp, num_obs), torch.eye(num_imp)], dim=1),
+                    ],
+                    dim=0,
+                )
+                .unsqueeze(0)
+                .to(device)
+            )
         else:
             mask = None
         if self.use_gap_encoding:
             obs_time_encoding = self.position_enc(obs_time).float()
             obs = torch.cat([obs_data, obs_time_encoding, torch.zeros_like(obs_time_encoding).float()], dim=-1)
             missing_data = torch.zeros(size=(imput_time.shape[0], imput_time.shape[1], obs_data.shape[-1])).to(device)
-            gap_embedding = torch.tensor([gap])[None, None, :].repeat(imput_time.shape[0], imput_time.shape[1], 1).to(device)
-            imput = torch.cat([missing_data.float(), self.position_enc(imput_time).float(), self.position_enc(gap_embedding).float()], dim=-1)
+            gap_embedding = (
+                torch.tensor([gap])[None, None, :].repeat(imput_time.shape[0], imput_time.shape[1], 1).to(device)
+            )
+            imput = torch.cat(
+                [missing_data.float(), self.position_enc(imput_time).float(), self.position_enc(gap_embedding).float()],
+                dim=-1,
+            )
         else:
             obs = torch.cat([obs_data, self.position_enc(obs_time).float(), torch.ones_like(obs_time).float()], dim=-1)
             missing_data = torch.zeros(size=(imput_time.shape[0], imput_time.shape[1], obs_data.shape[-1])).to(device)
-            imput = torch.cat([missing_data.float(), self.position_enc(imput_time).float(), torch.zeros_like(imput_time).float()], dim=-1)
+            imput = torch.cat(
+                [missing_data.float(), self.position_enc(imput_time).float(), torch.zeros_like(imput_time).float()],
+                dim=-1,
+            )
 
         combined = torch.cat([obs, imput], dim=1)
         enc_slf_attn_list = []
 
         # -- Forward
-        enc_output = self.input_proj(combined) # [batch_size, seq_len, d_model]
+        enc_output = self.input_proj(combined)  # [batch_size, seq_len, d_model]
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(enc_output, gap, slf_attn_mask=mask)
             enc_slf_attn_list += [enc_slf_attn] if return_attns else []
