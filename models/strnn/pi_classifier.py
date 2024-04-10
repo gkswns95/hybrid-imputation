@@ -3,13 +3,10 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from torch.nn import (
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 from set_transformer.model import SetTransformer
+
 
 class PositionalEncoding(nn.Module):
 
@@ -26,22 +23,20 @@ class PositionalEncoding(nn.Module):
         else:
             pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[: x.size(0), :]
         return self.dropout(x)
+
 
 class TrainablePositionEmbedding(nn.Module):
 
-    MODE_EXPAND = 'MODE_EXPAND'
-    MODE_ADD = 'MODE_ADD'
-    MODE_CONCAT = 'MODE_CONCAT'
+    MODE_EXPAND = "MODE_EXPAND"
+    MODE_ADD = "MODE_ADD"
+    MODE_CONCAT = "MODE_CONCAT"
 
-    def __init__(self,
-                 num_embeddings,
-                 embedding_dim,
-                 mode=MODE_ADD):
+    def __init__(self, num_embeddings, embedding_dim, mode=MODE_ADD):
         super(TrainablePositionEmbedding, self).__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
@@ -59,7 +54,7 @@ class TrainablePositionEmbedding(nn.Module):
         x = x.transpose(0, 1)
 
         if self.mode == self.MODE_EXPAND:
-            indices = torch.clamp(x, -self.num_embeddings,self.num_embeddings) + self.num_embeddings
+            indices = torch.clamp(x, -self.num_embeddings, self.num_embeddings) + self.num_embeddings
             x = F.embedding(indices.type(torch.LongTensor), self.weight)
             return x.transpose(0, 1)
         batch_size, seq_len = x.size()[:2]
@@ -70,12 +65,17 @@ class TrainablePositionEmbedding(nn.Module):
         if self.mode == self.MODE_CONCAT:
             x = torch.cat((x, embeddings.repeat(batch_size, 1, 1)), dim=-1)
             return x.transpose(0, 1)
-        raise NotImplementedError('Unknown mode: %s' % self.mode)
+        raise NotImplementedError("Unknown mode: %s" % self.mode)
 
     def extra_repr(self):
-        return 'num_embeddings={}, embedding_dim={}, mode={}'.format(self.num_embeddings, self.embedding_dim, self.mode,)
+        return "num_embeddings={}, embedding_dim={}, mode={}".format(
+            self.num_embeddings,
+            self.embedding_dim,
+            self.mode,
+        )
 
-class PiClassifier(nn.Module):
+
+class PIClassifier(nn.Module):
     def __init__(self, params):
         super().__init__()
 
@@ -87,8 +87,8 @@ class PiClassifier(nn.Module):
 
         self.target_type = params["target_type"]
 
-        self.x_dim = params["n_features"] # number of features per player (6 in general)
-        self.n_players = params["n_players"] # number of players per team (11 in general)
+        self.x_dim = params["n_features"]  # number of features per player (6 in general)
+        self.n_players = params["n_players"]  # number of players per team (11 in general)
 
         self.pi_z_dim = params["pi_z_dim"]
         self.rnn_dim = params["rnn_dim"]
@@ -103,7 +103,11 @@ class PiClassifier(nn.Module):
         self.in_fc = nn.Sequential(nn.Linear(rnn_input_dim, self.rnn_dim), nn.ReLU())
         if params["transformer"]:
             self.pos_encoder = PositionalEncoding(self.rnn_dim, dropout)
-            self.pos_embedder = TrainablePositionEmbedding(num_embeddings=self.max_len, embedding_dim=self.rnn_dim, mode=TrainablePositionEmbedding.MODE_ADD)
+            self.pos_embedder = TrainablePositionEmbedding(
+                num_embeddings=self.max_len,
+                embedding_dim=self.rnn_dim,
+                mode=TrainablePositionEmbedding.MODE_ADD,
+            )
             transformer_encoder_layers = TransformerEncoderLayer(self.rnn_dim, n_heads, self.rnn_dim * 2, dropout)
             self.transformer_encoder = TransformerEncoder(transformer_encoder_layers, n_layers)
         else:  # e.g. Bi-LSTM
@@ -112,7 +116,7 @@ class PiClassifier(nn.Module):
                 hidden_size=self.rnn_dim,
                 num_layers=n_layers,
                 dropout=dropout,
-                bidirectional=True
+                bidirectional=True,
             )
 
         out_fc_dim = self.rnn_dim if params["transformer"] else self.rnn_dim * 2
@@ -126,28 +130,30 @@ class PiClassifier(nn.Module):
         input = data["input"].to(device)
         target = data["target"].to(device)
 
-        input = input.transpose(0, 1) # [bs, time, -1] to [time, bs, -1]
+        input = input.transpose(0, 1)  # [bs, time, -1] to [time, bs, -1]
         seq_len = input.size(0)
         batch_size = input.size(1)
         n_players = self.params["n_players"]
-    
-        team1_x = input[:, :, : self.x_dim * n_players].reshape(-1, n_players, self.x_dim) # [time * bs, n_players, x_dim]
+
+        team1_x = input[:, :, : self.x_dim * n_players].reshape(
+            -1, n_players, self.x_dim
+        )  # [time * bs, n_players, x_dim]
         team2_x = input[:, :, self.x_dim * n_players :].reshape(-1, n_players, self.x_dim)
 
-        team1_z = self.team1_st(team1_x) # [time * bs, pi_z_dim]
+        team1_z = self.team1_st(team1_x)  # [time * bs, pi_z_dim]
         team2_z = self.team2_st(team2_x)
 
         contexts = torch.cat([team1_z, team2_z], -1).reshape(seq_len, batch_size, -1)
-        rnn_input = self.in_fc(contexts) # [time, bs, rnn_dim]
+        rnn_input = self.in_fc(contexts)  # [time, bs, rnn_dim]
 
         if self.params["transformer"]:
             # rnn_input = self.pos_embedder(rnn_input)
             rnn_input = self.pos_encoder(rnn_input)
-            h = self.transformer_encoder(rnn_input) # [time, bs, -1]
-        else: # e.g. Bi-LSTM 
+            h = self.transformer_encoder(rnn_input)  # [time, bs, -1]
+        else:  # e.g. Bi-LSTM
             h, _ = self.rnn(rnn_input)
 
-        out = self.out_fc(h).transpose(0, 1).transpose(1,2) # [bs, 2, time]
+        out = self.out_fc(h).transpose(0, 1).transpose(1, 2)  # [bs, 2, time]
 
         ce_loss = nn.CrossEntropyLoss()(out, target)
 

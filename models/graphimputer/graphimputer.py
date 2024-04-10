@@ -1,12 +1,14 @@
-import numpy as np
 import random
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from models.utils import *
 
-EPS = torch.finfo(torch.float).eps # numerical logs
+EPS = torch.finfo(torch.float).eps  # numerical logs
+
 
 class LSTM(nn.Module):
     def __init__(self, n_players, n_features, hid, device):
@@ -18,15 +20,15 @@ class LSTM(nn.Module):
 
         self.rnn1 = nn.LSTMCell(self.n_features, self.hid)
         self.rnn2 = nn.LSTMCell(self.hid, self.hid)
-    
+
     def init_states(self, bs):
-        self.h1 = torch.zeros(bs * self.n_players*2, self.hid).to(self.device)
-        self.c1 = torch.zeros(bs * self.n_players*2, self.hid).to(self.device)
-        self.h2 = torch.zeros(bs * self.n_players*2, self.hid).to(self.device)
-        self.c2 = torch.zeros(bs * self.n_players*2, self.hid).to(self.device)
-        
+        self.h1 = torch.zeros(bs * self.n_players * 2, self.hid).to(self.device)
+        self.c1 = torch.zeros(bs * self.n_players * 2, self.hid).to(self.device)
+        self.h2 = torch.zeros(bs * self.n_players * 2, self.hid).to(self.device)
+        self.c2 = torch.zeros(bs * self.n_players * 2, self.hid).to(self.device)
+
     def forward(self, x):
-        bs , _ = x.shape #[batch size, features]
+        bs, _ = x.shape  # [batch size, features]
 
         h1, c1 = self.rnn1(x, (self.h1, self.c1))
         h2, c2 = self.rnn2(self.h1, (self.h2, self.c2))
@@ -35,6 +37,7 @@ class LSTM(nn.Module):
         self.h2, self.c2 = h2.detach(), c2.detach()
         # return self.h2
         return h2
+
 
 class EdgeModel(nn.Module):
     def __init__(self, in_dim, hid):
@@ -51,6 +54,7 @@ class EdgeModel(nn.Module):
         out = self.mlp2(out)
         return out
 
+
 class NodeModel(nn.Module):
     def __init__(self, in_dim, hid):
         super().__init__()
@@ -65,7 +69,7 @@ class NodeModel(nn.Module):
         out = self.relu(out)
         out = self.mlp2(out)
         return out
-    
+
 
 class GraphNets(nn.Module):
     def __init__(self, n_players, n_features, in_dim, hid, device):
@@ -78,66 +82,54 @@ class GraphNets(nn.Module):
 
         self.edgemodel = EdgeModel(self.in_dim, self.hid)
         self.nodemodel = NodeModel(self.hid, self.hid)
-    
 
     def forward(self, x):
         bs, _, _ = x.shape
-        node_i = x.repeat_interleave(self.n_players * 2, dim = 1) #[b, (num_player * 2) ** 2, hid]
+        node_i = x.repeat_interleave(self.n_players * 2, dim=1)  # [b, (num_player * 2) ** 2, hid]
         node_j = node_i.clone()
-        edge_feats = torch.cat([node_i, node_j], dim = 2) #[b, (num_player * 2) ** 2, hid * 2]
+        edge_feats = torch.cat([node_i, node_j], dim=2)  # [b, (num_player * 2) ** 2, hid * 2]
         edge_out = self.edgemodel(edge_feats)
 
-        #Aggregation
+        # Aggregation
         edge_agg = torch.zeros(bs, self.n_players * 2, self.hid).to(self.device)
         for i in range(self.n_players * 2):
-            edge_agg[:, i, :] = torch.sum(edge_out[:, i::self.n_players * 2, :], dim = 1)
+            edge_agg[:, i, :] = torch.sum(edge_out[:, i :: self.n_players * 2, :], dim=1)
 
         node_out = self.nodemodel(edge_agg)
         return node_out
+
 
 class GraphImputer(nn.Module):
     def __init__(self, params):
         super().__init__()
         self.params = params
-        self.n_players = params['n_players']
-        self.n_features = params['n_features']
-        self.hid = params['rnn_dim']
-        self.var_dim = params['var_dim']
-        self.kld_weight = params['kld_weight_float']
-        self.bs = params['batch_size']
-        self.device = params['device']
-        
-        #LSTM
+        self.n_players = params["n_players"]
+        self.n_features = params["n_features"]
+        self.hid = params["rnn_dim"]
+        self.var_dim = params["var_dim"]
+        self.kld_weight = params["kld_weight_float"]
+        self.bs = params["batch_size"]
+        self.device = params["device"]
+
+        # LSTM
         self.lstm = LSTM(self.n_players, self.n_features, self.hid, self.device)
-        
-        #Encoder
+
+        # Encoder
         self.gn_enc = GraphNets(self.n_players, self.n_features, self.n_features + self.hid, self.hid, self.device)
         self.gn_enc_mean = nn.Linear(self.hid, self.var_dim)
-        self.gn_enc_std = nn.Sequential(
-            nn.Linear(self.hid, self.var_dim),
-            nn.Softplus()
-        )
+        self.gn_enc_std = nn.Sequential(nn.Linear(self.hid, self.var_dim), nn.Softplus())
 
-        #Prior
+        # Prior
         self.gn_prior = GraphNets(self.n_players, self.n_features, self.hid, self.hid, self.device)
         self.gn_prior_mean = nn.Linear(self.hid, self.var_dim)
-        self.gn_prior_std = nn.Sequential(
-            nn.Linear(self.hid, self.var_dim),
-            nn.Softplus()
-        )
+        self.gn_prior_std = nn.Sequential(nn.Linear(self.hid, self.var_dim), nn.Softplus())
 
-        self.phi_z = nn.Sequential(
-            nn.Linear(self.var_dim, self.var_dim),
-            nn.ReLU()
-        )
+        self.phi_z = nn.Sequential(nn.Linear(self.var_dim, self.var_dim), nn.ReLU())
 
-        #Decoder
+        # Decoder
         self.gn_dec = GraphNets(self.n_players, self.n_features, self.var_dim + self.hid, self.hid, self.device)
         self.gn_dec_mean = nn.Linear(self.hid, self.var_dim)
-        self.gn_dec_std = nn.Sequential(
-            nn.Linear(self.hid, self.var_dim),
-            nn.Softplus()
-        )
+        self.gn_dec_std = nn.Sequential(nn.Linear(self.hid, self.var_dim), nn.Softplus())
 
         self.final_layer = nn.Linear(self.hid, self.n_features)
 
@@ -148,15 +140,17 @@ class GraphImputer(nn.Module):
 
     def _calculate_loss(self, recons, input, enc_mu, enc_std, prior_mu, prior_std):
         recons_loss = F.mse_loss(recons, input)
-        kld_loss =  (2 * torch.log(prior_std + EPS) - 2 * torch.log(enc_std + EPS) + 
-            (enc_std.pow(2) + (enc_mu - prior_mu).pow(2)) /
-            prior_std.pow(2) - 1)
-        kld_loss =  0.5 * torch.sum(kld_loss)
+        kld_loss = (
+            2 * torch.log(prior_std + EPS)
+            - 2 * torch.log(enc_std + EPS)
+            + (enc_std.pow(2) + (enc_mu - prior_mu).pow(2)) / prior_std.pow(2)
+            - 1
+        )
+        kld_loss = 0.5 * torch.sum(kld_loss)
         return recons_loss + self.kld_weight * kld_loss
 
-
     def forward(self, x, masked_x, mask):
-        bs, seq_len, feat_dim = x.shape #[batch size, time steps, features]
+        bs, seq_len, feat_dim = x.shape  # [batch size, time steps, features]
 
         # h_list = []
         outputs_diff = []
@@ -167,9 +161,9 @@ class GraphImputer(nn.Module):
                 self.lstm.init_states(bs)
             else:
                 inputs = outputs[-1]
-            inputs = inputs.reshape(bs * self.n_players * 2, self.n_features) #[16, 22, 6]
+            inputs = inputs.reshape(bs * self.n_players * 2, self.n_features)  # [16, 22, 6]
             node_feats = self.lstm(inputs)
-            node_feats = node_feats.reshape(bs, self.n_players * 2, self.hid) #[16, 22, 64]
+            node_feats = node_feats.reshape(bs, self.n_players * 2, self.hid)  # [16, 22, 64]
 
             # if i == 0:
             #     h = torch.zeros_like(node_feats)
@@ -177,28 +171,30 @@ class GraphImputer(nn.Module):
             #     h = h_list[-1]
 
             # enc_input = torch.concat([inputs.view(bs, self.n_players * 2, self.n_features), h], dim = 2) #[16, 22, 70]
-            enc_input = torch.concat([inputs.view(bs, self.n_players * 2, self.n_features), node_feats], dim = 2) #[16, 22, 70]
-            #Encoder
-            enc_out = self.gn_enc(enc_input) #[batch_size, num_player * 2, hid]
-            enc_out_mean = self.gn_enc_mean(enc_out) #[batch_size, num_player * 2, var_dim]
+            enc_input = torch.concat(
+                [inputs.view(bs, self.n_players * 2, self.n_features), node_feats], dim=2
+            )  # [16, 22, 70]
+            # Encoder
+            enc_out = self.gn_enc(enc_input)  # [batch_size, num_player * 2, hid]
+            enc_out_mean = self.gn_enc_mean(enc_out)  # [batch_size, num_player * 2, var_dim]
             enc_out_std = self.gn_enc_std(enc_out)
 
-            #Prior
+            # Prior
             # prior_out = self.gn_prior(h) #[batch_size, num_player * 2, hid]
-            prior_out = self.gn_prior(node_feats) #[batch_size, num_player * 2, hid]
-            prior_out_mean = self.gn_prior_mean(prior_out) #[batch_size, num_player * 2, var_dim]
+            prior_out = self.gn_prior(node_feats)  # [batch_size, num_player * 2, hid]
+            prior_out_mean = self.gn_prior_mean(prior_out)  # [batch_size, num_player * 2, var_dim]
             prior_out_std = self.gn_prior_std(prior_out)
-            
-            z = self._reparameterized_sample(enc_out_mean, enc_out_std) #[batch_size, num_player * 2, var_dim]
+
+            z = self._reparameterized_sample(enc_out_mean, enc_out_std)  # [batch_size, num_player * 2, var_dim]
             z_out = self.phi_z(z)
 
-            #Decoder
+            # Decoder
             # dec_out = self.gn_dec(torch.cat([z_out, h], dim = 2)) #[batch_size, num_player * 2, hid]
-            dec_out = self.gn_dec(torch.cat([z_out, node_feats], dim = 2)) #[batch_size, num_player * 2, hid]
-            dec_out_mean = self.gn_dec_mean(dec_out) #[batch_size, num_player * 2, hid]
+            dec_out = self.gn_dec(torch.cat([z_out, node_feats], dim=2))  # [batch_size, num_player * 2, hid]
+            dec_out_mean = self.gn_dec_mean(dec_out)  # [batch_size, num_player * 2, hid]
             dec_out_std = self.gn_dec_std(dec_out)
 
-            out = self.final_layer(dec_out) #delta_x_t [batch_size, num_player * 2, n_features]
+            out = self.final_layer(dec_out)  # delta_x_t [batch_size, num_player * 2, n_features]
 
             out = out.view(bs, self.n_players * 2 * self.n_features)
             zero_mask = mask[:, i, :] == 0
@@ -207,30 +203,34 @@ class GraphImputer(nn.Module):
             else:
                 # prev_values = x[:, i-1, :]
                 prev_values = outputs[-1]
-            
+
             replace_out = torch.where(zero_mask, out + prev_values, x[:, i, :])
-            
-            #Update
+
+            # Update
             # h_list.append(node_feats)
             outputs_diff.append(out)
             outputs.append(replace_out)
 
         # h_list = torch.stack(h_list) #[time steps, batch size, n_players * 2, hid]
-        outputs_diff = torch.stack(outputs_diff).transpose(0, 1) #[time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
-        outputs = torch.stack(outputs).transpose(0, 1) #[time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
-        
-        input_diff = torch.concat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x, dim = 1)], dim = 1)
+        outputs_diff = torch.stack(outputs_diff).transpose(
+            0, 1
+        )  # [time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
+        outputs = torch.stack(outputs).transpose(
+            0, 1
+        )  # [time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
+
+        input_diff = torch.concat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x, dim=1)], dim=1)
         # input_diff = torch.concat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x_hat, dim = 1)], dim = 1)
-        
+
         # loss = self._calculate_loss(outputs, input_diff, enc_out_mean, enc_out_std, prior_out_mean, prior_out_std)
         loss = self._calculate_loss(outputs_diff, input_diff, enc_out_mean, enc_out_std, prior_out_mean, prior_out_std)
 
         # outputs = outputs + torch.concat([x[:, :1, :], x[:, :seq_len-1, :]], dim = 1) #delta_x_t + x_t-1
-        
+
         return outputs, loss
-    
+
     def sample(self, x, masked_x, mask):
-        bs, seq_len, feat_dim = x.shape #[batch size, time steps, features]
+        bs, seq_len, feat_dim = x.shape  # [batch size, time steps, features]
 
         # h_list = []
         outputs_diff = []
@@ -242,7 +242,7 @@ class GraphImputer(nn.Module):
             else:
                 inputs = outputs[-1]
                 # inputs = masked_x[:, i, :]
-    
+
             inputs = inputs.reshape(bs * self.n_players * 2, self.n_features)
             node_feats = self.lstm(inputs)
             node_feats = node_feats.reshape(bs, self.n_players * 2, self.hid)
@@ -252,22 +252,22 @@ class GraphImputer(nn.Module):
             # else:
             #     h = h_list[-1]
 
-            #Prior
+            # Prior
             # prior_out = self.gn_prior(h) #[batch_size, num_player * 2, hid]
-            prior_out = self.gn_prior(node_feats) #[batch_size, num_player * 2, hid]
-            prior_out_mean = self.gn_prior_mean(prior_out) #[batch_size, num_player * 2, var_dim]
+            prior_out = self.gn_prior(node_feats)  # [batch_size, num_player * 2, hid]
+            prior_out_mean = self.gn_prior_mean(prior_out)  # [batch_size, num_player * 2, var_dim]
             prior_out_std = self.gn_prior_std(prior_out)
-            
-            z = self._reparameterized_sample(prior_out_mean, prior_out_std) #[batch_size, num_player * 2, var_dim]
+
+            z = self._reparameterized_sample(prior_out_mean, prior_out_std)  # [batch_size, num_player * 2, var_dim]
             z_out = self.phi_z(z)
 
-            #Decoder
+            # Decoder
             # dec_out = self.gn_dec(torch.cat([z_out, h], dim = 2)) #[batch_size, num_player * 2, hid]
-            dec_out = self.gn_dec(torch.cat([z_out, node_feats], dim = 2)) #[batch_size, num_player * 2, hid]
-            dec_out_mean = self.gn_dec_mean(dec_out) #[batch_size, num_player * 2, hid]
+            dec_out = self.gn_dec(torch.cat([z_out, node_feats], dim=2))  # [batch_size, num_player * 2, hid]
+            dec_out_mean = self.gn_dec_mean(dec_out)  # [batch_size, num_player * 2, hid]
             dec_out_std = self.gn_dec_std(dec_out)
 
-            out = self.final_layer(dec_out) #delta_x_t
+            out = self.final_layer(dec_out)  # delta_x_t
             # outputs.append(out)
             out = out.view(bs, self.n_players * 2 * self.n_features)
             zero_mask = mask[:, i, :] == 0
@@ -277,29 +277,32 @@ class GraphImputer(nn.Module):
                 # prev_values = x[:, i-1, :]
                 prev_values = outputs[-1]
             replace_out = torch.where(zero_mask, out + prev_values, x[:, i, :])
-            
-            #Update
-            # h_list.append(node_feats) 
+
+            # Update
+            # h_list.append(node_feats)
             outputs_diff.append(out)
             outputs.append(replace_out)
 
         # h_list = torch.stack(h_list) #[time steps, batch size, n_players * 2, hid]
-        outputs_diff = torch.stack(outputs_diff).transpose(0, 1) #[time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
-        outputs = torch.stack(outputs).transpose(0, 1) #[time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
+        outputs_diff = torch.stack(outputs_diff).transpose(
+            0, 1
+        )  # [time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
+        outputs = torch.stack(outputs).transpose(
+            0, 1
+        )  # [time_steps, batch_size, n_players * 2, n_features] to [batch_size, time_steps, n_players * 2, n_features]
         # outputs = outputs.view(bs, seq_len, feat_dim) #[batch_size, time_steps, feat_dim]
 
-        input_diff = torch.cat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x, dim = 1)], dim = 1)
+        input_diff = torch.cat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x, dim=1)], dim=1)
         # input_diff = torch.concat([torch.zeros(bs, 1, feat_dim).to(self.device), torch.diff(x, dim = 1)], dim = 1)
         # loss = F.mse_loss(outputs_diff, input_diff)
         loss = F.mse_loss(outputs, x)
-        
+
         return outputs, loss
 
 
-        
 class BidirectionalGraphImputer(nn.Module):
     # def __init__(self, n_players, n_features, hid, var_dim, missing_mode, dataset, kld_weight, device):
-    def __init__(self, params, parser = None):
+    def __init__(self, params, parser=None):
         super().__init__()
 
         self.model_args = [
@@ -329,12 +332,12 @@ class BidirectionalGraphImputer(nn.Module):
             "kld_weight_float",
             "weighted",
             "missing_prob_float",
-            "m_pattern"
+            "m_pattern",
         ]
         self.params = parse_model_params(self.model_args, params, parser)
         self.params_str = get_params_str(self.model_args, params)
-        self.device = self.params['device']
-        
+        self.device = self.params["device"]
+
         # if params["target_type"] == "imputation":
         #     self.model_type = "regressor"
         # else:
@@ -349,160 +352,174 @@ class BidirectionalGraphImputer(nn.Module):
         else:
             self.missing_mode = "all_player"
 
-        self.dataset = params['dataset']
-        self.n_features = params['n_features']
-        self.weighted = params['weighted']
-        self.missing_prob = params['missing_prob_float']
+        self.dataset = params["dataset"]
+        self.n_features = params["n_features"]
+        self.weighted = params["weighted"]
+        self.missing_prob = params["missing_prob_float"]
         print(f"Missing mode : {self.missing_mode} | {self.missing_prob}")
         print(f"KLD Weight : {params['kld_weight_float']}")
         self.forward_gi = GraphImputer(self.params)
         self.backward_gi = GraphImputer(self.params)
 
-    def forward(self, data, device='cuda:0'):
-        if len(data) == 3: #Soccer
+    def forward(self, data, device="cuda:0"):
+        if len(data) == 3:  # Soccer
             x, y, ball = data
         else:
             x, y = data
             ball = []
-        input_dict = {"target" : x, "ball" : ball}
+        input_dict = {"target": x, "ball": ball}
         ret = dict()
         bs, seq_len, feat_dim = x.shape
         x = x.to(self.device)
-        #Bidirectional
-        #Masking
+        # Bidirectional
+        # Masking
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            inputs = input_dict,
-            mode = self.missing_mode, 
-            ws = seq_len, 
-            missing_rate = missing_probs[random.randint(1, 9)],
+            inputs=input_dict,
+            mode=self.missing_mode,
+            ws=seq_len,
+            missing_rate=missing_probs[random.randint(1, 9)],
             # missing_rate = self.missing_prob,
-            dataset= self.dataset)
-        # import pickle 
+            dataset=self.dataset,
+        )
+        # import pickle
         # with open(f'mask_{self.missing_mode}.pkl', 'wb') as f:
         #     pickle.dump(mask, f)
         # print('mask saved')
 
-        if self.missing_mode == 'camera_simulate':
-            time_gap = time_interval(mask, list(range(seq_len)), mode = 'camera')
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_players]
-            time_gap = torch.tensor(time_gap, dtype = torch.float32)
+        if self.missing_mode == "camera_simulate":
+            time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
+            time_gap = torch.tensor(time_gap, dtype=torch.float32)
             mask = torch.repeat_interleave(mask, self.n_features, dim=-1).squeeze(0)  # [bs, time, x_dim]
             time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).squeeze(0)
 
         else:
-            time_gap = time_interval(mask, list(range(seq_len)), mode = 'block')
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_players]
-            time_gap = torch.tensor(time_gap, dtype = torch.float32).unsqueeze(0)
+            time_gap = time_interval(mask, list(range(seq_len)), mode="block")
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
+            time_gap = torch.tensor(time_gap, dtype=torch.float32).unsqueeze(0)
             mask = torch.repeat_interleave(mask, self.n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
-            time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
-            
-        mask = mask.to(self.device)
-        masked_x = x * mask 
+            time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).expand(
+                bs, -1, -1
+            )  # [bs, time, x_dim]
 
-        reversed_x = torch.flip(x, dims = [1])
-        reversed_masked_x = torch.flip(masked_x, dims = [1])
-        reversed_mask = torch.flip(mask, dims = [1])
+        mask = mask.to(self.device)
+        masked_x = x * mask
+
+        reversed_x = torch.flip(x, dims=[1])
+        reversed_masked_x = torch.flip(masked_x, dims=[1])
+        reversed_mask = torch.flip(mask, dims=[1])
 
         forward_out, forward_loss = self.forward_gi(x, masked_x, mask)
         backward_out, backward_loss = self.backward_gi(reversed_x, reversed_masked_x, reversed_mask)
-        backward_out = torch.flip(backward_out, dims = [1])
+        backward_out = torch.flip(backward_out, dims=[1])
 
         if self.weighted:
             weights = torch.arange(1, seq_len + 1) / seq_len
             weights = weights.unsqueeze(0).unsqueeze(2).to(self.device)
-            reversed_weights = torch.flip(weights, dims = [1]).to(self.device)
+            reversed_weights = torch.flip(weights, dims=[1]).to(self.device)
             out = forward_out * weights + backward_out * reversed_weights
         else:
             out = 0.5 * forward_out + 0.5 * backward_out
         loss = forward_loss + backward_loss
 
-        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset) # [bs, total_players, 2]
+        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
         target_t = reshape_tensor(x, rescale=True, dataset=self.dataset)
-        
+
         # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
 
-        ret['target'] = x
-        ret['pred'] = out
-        ret['mask'] = mask
-        ret['total_loss'] = loss
-        ret['pred_dist'] = calc_trace_dist(ret["pred"], ret["target"], ret["mask"], n_features = self.n_features, aggfunc='mean', dataset=self.dataset)
-        ret['pred_dist_sum'] = calc_trace_dist(ret["pred"], ret["target"], ret["mask"], n_features = self.n_features, aggfunc='sum', dataset=self.dataset)
+        ret["target"] = x
+        ret["pred"] = out
+        ret["mask"] = mask
+        ret["total_loss"] = loss
+        ret["pred_dist"] = calc_trace_dist(
+            ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="mean", dataset=self.dataset
+        )
+        ret["pred_dist_sum"] = calc_trace_dist(
+            ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
+        )
         # ret['pos_dist'] = pos_dist.item()
 
         return ret
-    
+
     @torch.no_grad()
-    def evaluate(self, data, device='cuda:0'):
-        if len(data) == 3: #Soccer
+    def evaluate(self, data, device="cuda:0"):
+        if len(data) == 3:  # Soccer
             x, y, ball = data
         else:
             x, y = data
             ball = []
-    
-        input_dict = {"target" : x, "ball" : ball}
+
+        input_dict = {"target": x, "ball": ball}
         ret = dict()
         bs, seq_len, feat_dim = x.shape
         x = x.to(self.device)
-        if self.missing_prob == 'random':
+        if self.missing_prob == "random":
             missing_probs = np.arange(10) * 0.1
             missing_rate = missing_probs[random.randint(1, 9)]
         else:
             missing_rate = self.missing_prob
 
-        missing_probs = np.arange(10) * 0.1       
+        missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            inputs = input_dict,
-            mode = self.missing_mode, 
-            ws = seq_len, 
-            missing_rate = missing_probs[random.randint(1, 9)],
-            dataset= self.dataset)
-        
-        if self.missing_mode == 'camera_simulate':
-            time_gap = time_interval(mask, list(range(seq_len)), mode = 'camera')
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_players]
-            time_gap = torch.tensor(time_gap, dtype = torch.float32)
+            inputs=input_dict,
+            mode=self.missing_mode,
+            ws=seq_len,
+            missing_rate=missing_probs[random.randint(1, 9)],
+            dataset=self.dataset,
+        )
+
+        if self.missing_mode == "camera_simulate":
+            time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
+            time_gap = torch.tensor(time_gap, dtype=torch.float32)
             mask = torch.repeat_interleave(mask, self.n_features, dim=-1).squeeze(0)  # [bs, time, x_dim]
             time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).squeeze(0)
 
         else:
-            time_gap = time_interval(mask, list(range(seq_len)), mode = 'block')
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_players]
-            time_gap = torch.tensor(time_gap, dtype = torch.float32).unsqueeze(0)
+            time_gap = time_interval(mask, list(range(seq_len)), mode="block")
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
+            time_gap = torch.tensor(time_gap, dtype=torch.float32).unsqueeze(0)
             mask = torch.repeat_interleave(mask, self.n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
-            time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
-        
+            time_gap = torch.repeat_interleave(time_gap, self.n_features, dim=-1).expand(
+                bs, -1, -1
+            )  # [bs, time, x_dim]
+
         mask = mask.to(self.device)
         masked_x = x * mask
-        
-        reversed_x = torch.flip(x, dims = [1])
-        reversed_masked_x = torch.flip(masked_x, dims = [1])
-        reversed_mask = torch.flip(mask, dims = [1])
+
+        reversed_x = torch.flip(x, dims=[1])
+        reversed_masked_x = torch.flip(masked_x, dims=[1])
+        reversed_mask = torch.flip(mask, dims=[1])
 
         forward_out, forward_loss = self.forward_gi.sample(x, masked_x, mask)
         backward_out, backward_loss = self.backward_gi.sample(reversed_x, reversed_masked_x, reversed_mask)
-        backward_out = torch.flip(backward_out, dims = [1])
+        backward_out = torch.flip(backward_out, dims=[1])
         # out = 0.5 * forward_out + 0.5 * backward_out #Fusion하는 부분 weight 다르게 수정
         if self.weighted:
             weights = torch.arange(1, seq_len + 1) / seq_len
             weights = weights.unsqueeze(0).unsqueeze(2).to(self.device)
-            reversed_weights = torch.flip(weights, dims = [1]).to(self.device)
+            reversed_weights = torch.flip(weights, dims=[1]).to(self.device)
             out = forward_out * weights + backward_out * reversed_weights
         else:
             out = 0.5 * forward_out + 0.5 * backward_out
-        
+
         loss = forward_loss + backward_loss
 
-        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset) # [bs, total_players, 2]
+        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
         target_t = reshape_tensor(x, rescale=True, dataset=self.dataset)
-        
+
         # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
-        
-        ret['target'] = x
-        ret['pred'] = out
-        ret['mask'] = mask
-        ret['total_loss'] = loss
-        ret['pred_dist'] = calc_trace_dist(ret["pred"], ret["target"], ret["mask"], n_features = self.n_features, aggfunc='sum', dataset=self.dataset)
-        ret['pred_dist_sum'] = calc_trace_dist(ret["pred"], ret["target"], ret["mask"], n_features = self.n_features, aggfunc='sum', dataset=self.dataset)
+
+        ret["target"] = x
+        ret["pred"] = out
+        ret["mask"] = mask
+        ret["total_loss"] = loss
+        ret["pred_dist"] = calc_trace_dist(
+            ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
+        )
+        ret["pred_dist_sum"] = calc_trace_dist(
+            ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
+        )
         # ret['pos_dist'] = pos_dist.item()
         return ret

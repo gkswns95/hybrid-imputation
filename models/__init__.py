@@ -1,9 +1,11 @@
-from .ours.dbhp import DBHP
-from .baselines.brits.brits import BRITS
-from .baselines.naomi.naomi import NAOMI
-from .baselines.nrtsi.nrtsi import NRTSI
-from .baselines.graphimputer.graphimputer import BidirectionalGraphImputer
+from brits.brits import BRITS
+from graphimputer.graphimputer import BidirectionalGraphImputer
+from naomi.naomi import NAOMI
+from nrtsi.nrtsi import NRTSI
+from strnn.dbhp import DBHP
+
 # from .baselines.social_lstm.social_lstm import SOCIALLSTM
+
 
 def load_model(model_name, params, parser=None):
     model_name = model_name.lower()

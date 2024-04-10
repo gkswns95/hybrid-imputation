@@ -1,12 +1,12 @@
 import os
+import random
 
 import numpy as np
 import pandas as pd
 import torch
-import random
-
 from torch.utils.data import Dataset
 from tqdm import tqdm
+
 
 class SoccerDataset(Dataset):
     def __init__(
@@ -23,19 +23,20 @@ class SoccerDataset(Dataset):
         normalize=False,
         flip_pitch=False,
         overlap=True,
-    ):  
+    ):
         random.seed(1000)
         self.n_pass = 0
         self.n_pass_miss = 0
         self.missing_value = 0
         self.target_type = target_type
-        self.cartesian_accel = cartesian_accel # shold be removed
+        self.cartesian_accel = cartesian_accel  # shold be removed
         if n_features == 6:
             self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
             # if cartesian_accel:
             #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]  # total features to save as npy files
             # else:
-            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]  # total features to save as npy files
+            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]
+            # total features to save as npy files
         else:
             self.feature_types = ["_x", "_y"]
         # number of features among self.feature_types to use in model training
@@ -43,7 +44,7 @@ class SoccerDataset(Dataset):
         self.k = 11  # number of input players per each team
 
         self.ws = window_size
-        self.n_sliding = 30 # number of sliding window
+        self.n_sliding = 30  # number of sliding window
         self.ps = pitch_size
         self.augment = flip_pitch
         self.overlap = overlap
@@ -56,9 +57,6 @@ class SoccerDataset(Dataset):
             print(f"Load processed data : {load_dir}")
 
         else:
-            ### debug ###
-            # val_epi_count = 0
-            ### debug ###
             assert data_paths is not None
 
             targets = [target_type]
@@ -78,7 +76,7 @@ class SoccerDataset(Dataset):
                     match_traces[y_cols] /= self.ps[1]
 
                 for phase in match_traces["phase"].unique():
-                    if type(phase) == str:  # For GPS-event traces, ignore phases with n_players < 22
+                    if isinstance(phase, str):  # For GPS-event traces, ignore phases with n_players < 22
                         phase_tuple = [int(i) for i in phase[1:-1].split(",")]
                         if phase_tuple[0] < 0 or phase_tuple[1] < 0:
                             continue
@@ -91,14 +89,14 @@ class SoccerDataset(Dataset):
                     input_cols = [c for c in phase_traces[player_cols].dropna(axis=1).columns if c[:3] not in targets]
                     team1_cols = [c for c in input_cols if c.startswith(team1_code)]
                     team2_cols = [c for c in input_cols if c.startswith(team2_code)]
-                    ball_cols  = [f"ball{t}" for t in ["_x", "_y"]]
+                    ball_cols = [f"ball{t}" for t in ["_x", "_y"]]
 
                     # Reorder teams so that the left team comes first
                     input_cols = team1_cols + team2_cols
-                    
+
                     if min(len(team1_cols), len(team2_cols)) < n_features * self.k:
                         continue
-                    
+
                     episodes = [e for e in phase_traces["episode"].unique() if e > 0]
                     for episode in episodes:
                         episode_traces = match_traces[match_traces["episode"] == episode]
@@ -107,30 +105,21 @@ class SoccerDataset(Dataset):
                             episode_target = episode_traces[input_cols].values
                             episode_ball = episode_traces[ball_cols].values
                             if len(episode_traces) >= self.ws:
-                                ### debug ###
-                                val_epi_count += 1
-                                ### debug ###
                                 for i in range(0, len(episode_traces) - self.ws + 1, self.ws):
                                     if self.overlap:
                                         if i + self.n_sliding + self.ws < len(episode_traces):
                                             for j in range(self.n_sliding):
-                                                input_data_list.append(episode_input[i + j: i + j + self.ws])
-                                                target_data_list.append(episode_target[i + j: i + j + self.ws])
-                                                ball_data_list.append(episode_ball[i + j: i + j + self.ws])
+                                                input_data_list.append(episode_input[i + j : i + j + self.ws])
+                                                target_data_list.append(episode_target[i + j : i + j + self.ws])
+                                                ball_data_list.append(episode_ball[i + j : i + j + self.ws])
                                     else:
-                                        input_data_list.append(episode_input[i: i + self.ws])
-                                        target_data_list.append(episode_target[i: i + self.ws])
-                                        ball_data_list.append(episode_ball[i: i + self.ws])
+                                        input_data_list.append(episode_input[i : i + self.ws])
+                                        target_data_list.append(episode_target[i : i + self.ws])
+                                        ball_data_list.append(episode_ball[i : i + self.ws])
 
             input_data = np.stack(input_data_list, axis=0)
             target_data = np.stack(target_data_list, axis=0)
             ball_data = np.stack(ball_data_list, axis=0)
-
-            # ### debug ###
-            # print(f"val_epi_count : {val_epi_count}")
-            # print(f"input_data : {input_data.shape}")
-            # asd
-            # ### debug ###
 
             if normalize:
                 self.ps = (1, 1)
@@ -140,7 +129,7 @@ class SoccerDataset(Dataset):
                 input_data = input_data[:, :, :, :n_features].reshape(input_data.shape[0], self.ws, -1)
 
             self.input_data = torch.FloatTensor(input_data)
-            
+
             if target_type == "imputation":
                 self.target_data = torch.FloatTensor(target_data)
                 self.ball_data = torch.FloatTensor(ball_data)
@@ -168,31 +157,43 @@ class SoccerDataset(Dataset):
                 ref_y = flip_y * self.ps[1]
                 mul_x = 1 - flip_x * 2
                 mul_y = 1 - flip_y * 2
-                
+
                 # flip x and y
-                input_data[:, 0:valid_dim:self.n_features] = input_data[:, 0:valid_dim:self.n_features] * mul_x + ref_x
-                input_data[:, 1:valid_dim:self.n_features] = input_data[:, 1:valid_dim:self.n_features] * mul_y + ref_y
+                input_data[:, 0 : valid_dim : self.n_features] = (
+                    input_data[:, 0 : valid_dim : self.n_features] * mul_x + ref_x
+                )
+                input_data[:, 1 : valid_dim : self.n_features] = (
+                    input_data[:, 1 : valid_dim : self.n_features] * mul_y + ref_y
+                )
 
                 ball_data[:, [0]] = ball_data[:, [0]] * mul_x + ref_x
                 ball_data[:, [1]] = ball_data[:, [1]] * mul_y + ref_y
 
                 # flip vx,vy,ax,ay
                 if self.n_features > 2:
-                    input_data[:, 2:valid_dim:self.n_features] = input_data[:, 2:valid_dim:self.n_features] * mul_x
-                    input_data[:, 3:valid_dim:self.n_features] = input_data[:, 3:valid_dim:self.n_features] * mul_y
+                    input_data[:, 2 : valid_dim : self.n_features] = (
+                        input_data[:, 2 : valid_dim : self.n_features] * mul_x
+                    )
+                    input_data[:, 3 : valid_dim : self.n_features] = (
+                        input_data[:, 3 : valid_dim : self.n_features] * mul_y
+                    )
                     if self.cartesian_accel:
-                        input_data[:, 4:valid_dim:self.n_features] = input_data[:, 4:valid_dim:self.n_features] * mul_x
-                        input_data[:, 5:valid_dim:self.n_features] = input_data[:, 5:valid_dim:self.n_features] * mul_y
+                        input_data[:, 4 : valid_dim : self.n_features] = (
+                            input_data[:, 4 : valid_dim : self.n_features] * mul_x
+                        )
+                        input_data[:, 5 : valid_dim : self.n_features] = (
+                            input_data[:, 5 : valid_dim : self.n_features] * mul_y
+                        )
 
                 # if flip_x == 1, reorder team1 and team2 features
-                team1_input = input_data[:, :self.n_features * self.k]
-                team2_input = input_data[:, self.n_features * self.k: valid_dim]
+                team1_input = input_data[:, : self.n_features * self.k]
+                team2_input = input_data[:, self.n_features * self.k : valid_dim]
 
                 input_permuted = np.concatenate([team2_input, team1_input], -1)
                 input_data = torch.FloatTensor(np.where(flip_x, input_permuted, input_data))
-                
+
                 target_data = input_data.clone()
-                
+
                 return input_data, target_data, ball_data
             else:
                 return self.input_data[i], self.target_data[i], self.ball_data[i]
@@ -215,7 +216,8 @@ class SoccerDataset(Dataset):
 
         return (a_gk, b_gk) if a_gk_mean_x < b_gk_mean_y else (b_gk, a_gk)
 
-class NBAdataset(Dataset):
+
+class NBADasaset(Dataset):
     def __init__(
         self,
         data_paths=None,
@@ -230,7 +232,7 @@ class NBAdataset(Dataset):
         normalize=False,
         flip_pitch=False,
         overlap=True,
-    ):      
+    ):
         self.target_type = target_type
         self.cartesian_accel = cartesian_accel
         if n_features == 6:
@@ -238,29 +240,29 @@ class NBAdataset(Dataset):
             # if cartesian_accel:
             #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]  # total features to save as npy files
             # else:
-            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]  # total features to save as npy files
+            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]
         else:
             self.feature_types = ["_x", "_y"]
-        
+
         # number of features among self.feature_types to use in model training
         self.n_features = n_features
         self.k = 5  # number of input players per each team
 
         self.ws = window_size
-        self.n_sliding = 10 # number of sliding window
+        self.n_sliding = 10  # number of sliding window
         self.ps = pitch_size
         self.augment = flip_pitch
         self.overlap = overlap
-        
+
         input_data_list = []
         target_data_list = []
-        ### debug ###
+        # debug
         val_epi_count = 0
-        ### debug ###
+
         for f in tqdm(data_paths, bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}"):
             match_traces = pd.read_csv(f, header=0)
             input_cols = [f"player{c}{f}" for c in range(self.k * 2) for f in self.feature_types]
-            
+
             if normalize:
                 x_cols = [c for c in input_cols if c.endswith("_x")]
                 y_cols = [c for c in input_cols if c.endswith("_y")]
@@ -274,18 +276,15 @@ class NBAdataset(Dataset):
                 if target_type == "imputation":
                     episode_target = episode_traces[input_cols].values
                     if len(episode_traces) >= self.ws:
-                        ### debug ###
-                        val_epi_count += 1
-                        ### debug ###
                         for i in range(0, len(episode_traces) - self.ws + 1, self.ws):
                             if overlap:
                                 if i + self.n_sliding + self.ws < len(episode_traces):
                                     for j in range(self.n_sliding):
-                                        input_data_list.append(episode_input[i + j: i + j + self.ws])
-                                        target_data_list.append(episode_target[i + j: i + j + self.ws])
+                                        input_data_list.append(episode_input[i + j : i + j + self.ws])
+                                        target_data_list.append(episode_target[i + j : i + j + self.ws])
                             else:
-                                input_data_list.append(episode_input[i: i + self.ws])
-                                target_data_list.append(episode_target[i: i + self.ws])
+                                input_data_list.append(episode_input[i : i + self.ws])
+                                target_data_list.append(episode_target[i : i + self.ws])
 
             input_data = np.stack(input_data_list, axis=0)
             target_data = np.stack(target_data_list, axis=0)
@@ -297,11 +296,8 @@ class NBAdataset(Dataset):
         self.input_data = torch.FloatTensor(input_data)
         self.target_data = torch.FloatTensor(target_data)
 
-        ### debug ###
         # print(f"val_epi_count : {val_epi_count}")
         # print(f"input_data : {input_data.shape}")
-        # asd
-        ### debug ###
 
     def __getitem__(self, i):
         if self.target_type == "imputation":
@@ -310,7 +306,8 @@ class NBAdataset(Dataset):
     def __len__(self):
         return len(self.input_data)
 
-class NFLdataset(Dataset):
+
+class NFLDataset(Dataset):
     def __init__(
         self,
         data_paths=None,
@@ -325,7 +322,7 @@ class NFLdataset(Dataset):
         normalize=False,
         flip_pitch=False,
         overlap=True,
-    ):      
+    ):
         self.target_type = target_type
         self.cartesian_accel = cartesian_accel
         if n_features == 6:
@@ -333,28 +330,28 @@ class NFLdataset(Dataset):
             # if cartesian_accel:
             #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]  # total features to save as npy files
             # else:
-            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]  # total features to save as npy files
+            #     self.feature_types = ["_x", "_y", "_vx", "_vy", "_speed", "_accel"]
         else:
             self.feature_types = ["_x", "_y"]
-        
+
         # number of features among self.feature_types to use in model training
         self.n_features = n_features
         self.k = 6  # number of input players per each team
 
         self.ws = window_size
-        self.n_sliding = 10 # number of sliding window
+        self.n_sliding = 10  # number of sliding window
         self.ps = pitch_size
         self.augment = flip_pitch
         self.overlap = overlap
-        ### debug ###
-        val_epi_count = 0 
-        ### debug ###
+        # debug
+        val_epi_count = 0
+
         input_data_list = []
         target_data_list = []
         for f in tqdm(data_paths, bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}"):
             match_traces = pd.read_csv(f, header=0)
             input_cols = [f"player{c}{f}" for c in range(self.k) for f in self.feature_types]
-            
+
             if normalize:
                 x_cols = [c for c in input_cols if c.endswith("_x")]
                 y_cols = [c for c in input_cols if c.endswith("_y")]
@@ -363,16 +360,16 @@ class NFLdataset(Dataset):
 
             episodes = [e for e in match_traces["episode"].unique() if e > 0]
             for episode in episodes:
-                ### debug ###
+                # debug
                 val_epi_count += 1
-                ### debug ###
+
                 episode_traces = match_traces[match_traces["episode"] == episode]
                 episode_input = episode_traces[input_cols].values
                 if target_type == "imputation":
                     episode_target = episode_traces[input_cols].values
                     for i in range(0, len(episode_traces) - self.ws + 1, self.ws):
-                        input_data_list.append(episode_input[i: i + self.ws])
-                        target_data_list.append(episode_target[i: i + self.ws])
+                        input_data_list.append(episode_input[i : i + self.ws])
+                        target_data_list.append(episode_target[i : i + self.ws])
 
             input_data = np.stack(input_data_list, axis=0)
             target_data = np.stack(target_data_list, axis=0)
@@ -384,11 +381,8 @@ class NFLdataset(Dataset):
         self.input_data = torch.FloatTensor(input_data)
         self.target_data = torch.FloatTensor(target_data)
 
-        ### debug ###
         # print(f"val_epi_count : {val_epi_count}")
         # print(f"input_data : {input_data.shape}")
-        # asd
-        ### debug ###
 
     def __getitem__(self, i):
         if self.target_type == "imputation":
@@ -396,6 +390,7 @@ class NFLdataset(Dataset):
 
     def __len__(self):
         return len(self.input_data)
+
 
 if __name__ == "__main__":
     dir = "data/metrica_traces"

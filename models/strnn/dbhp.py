@@ -1,13 +1,16 @@
 import random
-import numpy as np 
 
+import numpy as np
 import torch
 import torch.nn as nn
 
-from models.ours.dbhp_imputer import dbhp_imputer
+from models.ours.dbhp_imputer import DBHPImputer
+from models.ours.derivative_prediction_utils import (
+    calc_static_hybrid_pred,
+    calc_static_hybrid_pred2,
+)
 from models.utils import *
 
-from models.ours.derivative_prediction_utils import calc_static_hybrid_pred, calc_static_hybrid_pred2
 
 class DBHP(nn.Module):
     def __init__(self, params, parser=None):
@@ -39,11 +42,11 @@ class DBHP(nn.Module):
         self.build()
 
     def build(self):
-        self.model = dbhp_imputer(self.params)
+        self.model = DBHPImputer(self.params)
 
     def forward(self, data, mode="train", device="cuda:0"):
         if mode == "test":
-            if self.params["dataset"] == "football": # Randomly permute player order
+            if self.params["dataset"] == "football":  # Randomly permute player order
                 input_data = random_permutation(data[0], 6)
             else:
                 input_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["n_players"] * 2)
@@ -51,7 +54,7 @@ class DBHP(nn.Module):
         else:
             input_data = data[0]
             target_data = data[1]
-        
+
         # input_data = data[0]
         # target_data = data[1]
 
@@ -63,37 +66,38 @@ class DBHP(nn.Module):
         input_dict = {"target": target_data, "ball": ball_data}
 
         bs, seq_len = input_dict["target"].shape[:2]
-        
+
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
             inputs=input_dict,
             mode=self.params["missing_pattern"],
-            ws=seq_len, 
+            ws=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
-            dataset=self.params["dataset"])
+            dataset=self.params["dataset"],
+        )
 
         if self.params["missing_pattern"] == "camera_simulate":
             deltas_f, deltas_b = compute_deltas(mask)
-            
-            mask = torch.tensor(mask, dtype=torch.float32) # [bs, time, n_agents]
-            mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1) # [bs, time, x_dim(n_agents * n_features)]
 
-            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32) # [bs, time, n_agents]
+            mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, agents]
+            mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1)  # [bs, time, x]
+
+            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)  # [bs, time, agents]
             deltas_b = torch.tensor(deltas_b.copy(), dtype=torch.float32)
 
-            if mode == "test": # For section 5
+            if mode == "test":  # For section 5
                 ball = input_dict["ball"].clone().cpu()
                 if self.params["normalize"]:
                     ball_loc_unnormalized = normalize_tensor(ball, mode="reverse", dataset=self.params["dataset"])
                     poly_coords = compute_polygon_loc(ball_loc_unnormalized)
-        else: # e.g. "all-player", "player-wise"
-            mask_ = torch.tensor(mask, dtype=torch.float32).unsqueeze(0).expand(bs, -1, -1) # [bs, time, n_gents]
+        else:  # e.g. "all-player", "player-wise"
+            mask_ = torch.tensor(mask, dtype=torch.float32).unsqueeze(0).expand(bs, -1, -1)  # [bs, time, agents]
             deltas_f, deltas_b = compute_deltas(np.array(mask_))
 
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0) # [1, time, n_agents]
-            mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1).expand(bs, -1, -1) # [bs, time, x_dim]
+            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_agents]
+            mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1).expand(bs, -1, -1)  # [bs, time, x]
 
-            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32) # [bs, time, n_agents]
+            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)  # [bs, time, n_agents]
             deltas_b = torch.tensor(deltas_b.copy(), dtype=torch.float32)
 
         if self.params["cuda"]:
@@ -109,10 +113,10 @@ class DBHP(nn.Module):
         ret = self.model(input_dict, device=device)
 
         if mode == "test" and self.params["train_hybrid"]:
-            ret["static_hybrid_pred"] = calc_static_hybrid_pred(ret) # (STRNN-DBHP-S)
-            ret["static_hybrid2_pred"] = calc_static_hybrid_pred2(ret) # (STRNN-DBHP-S)
+            ret["static_hybrid_pred"] = calc_static_hybrid_pred(ret)
+            ret["static_hybrid2_pred"] = calc_static_hybrid_pred2(ret)
 
-        aggfunc = "mean" if mode=="train" else "sum"
+        aggfunc = "mean" if mode == "train" else "sum"
         pred_keys = ["pred"]
         if self.params["physics_loss"]:
             pred_keys += ["physics_f", "physics_b"]
@@ -122,19 +126,33 @@ class DBHP(nn.Module):
             pred_keys += ["train_hybrid"]
         for key in pred_keys:
             if key == "pred":
-                ret[f"{key}_dist"] = calc_trace_dist(ret[f"{key}"], ret["target"], ret["mask"], aggfunc=aggfunc, dataset=self.params["dataset"])
-            else:    
-                ret[f"{key}_dist"] = calc_trace_dist(ret[f"{key}_pred"], ret["target"], ret["mask"], aggfunc=aggfunc, dataset=self.params["dataset"])
-            
-        if mode == "test" and self.params["missing_pattern"] == "camera_simulate": # For section 5
+                ret[f"{key}_dist"] = calc_trace_dist(
+                    ret[f"{key}"],
+                    ret["target"],
+                    ret["mask"],
+                    aggfunc=aggfunc,
+                    dataset=self.params["dataset"],
+                )
+            else:
+                ret[f"{key}_dist"] = calc_trace_dist(
+                    ret[f"{key}_pred"],
+                    ret["target"],
+                    ret["mask"],
+                    aggfunc=aggfunc,
+                    dataset=self.params["dataset"],
+                )
+
+        if mode == "test" and self.params["missing_pattern"] == "camera_simulate":  # For section 5
             ret["polygon_points"] = poly_coords
-        
+
         if mode == "test" and self.params["dataset"] != "football":
             for key in pred_keys:
                 if key == "pred":
                     ret[key] = xy_sort_tensor(ret[key], sort_idxs, self.params["n_players"] * 2, mode="restore")
                 else:
-                    ret[f"{key}_pred"] = xy_sort_tensor(ret[f"{key}_pred"], sort_idxs, self.params["n_players"] * 2, mode="restore")
+                    ret[f"{key}_pred"] = xy_sort_tensor(
+                        ret[f"{key}_pred"], sort_idxs, self.params["n_players"] * 2, mode="restore"
+                    )
             ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, self.params["n_players"] * 2, mode="restore")
             ret["mask"] = xy_sort_tensor(ret["mask"], sort_idxs, self.params["n_players"] * 2, mode="restore")
 
