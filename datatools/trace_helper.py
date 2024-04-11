@@ -190,7 +190,7 @@ class TraceHelper:
         episode_pred = torch.zeros(seq_len, output_dim)
         episode_target = torch.zeros(seq_len, output_dim)
         episode_mask = torch.ones(seq_len, output_dim) * -1
-        if model_name == "dbhp" and model.params["train_hybrid"]:
+        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
             if dataset == "afootball":
                 episode_weights = torch.zeros(seq_len, model.params["n_players"] * 3)
             else:
@@ -265,8 +265,8 @@ class TraceHelper:
                 else:
                     episode_ret[key] += window_ret[key]
 
-            if model_name == "dbhp" and model.params["train_hybrid"]:
-                episode_weights[i_from:i_to] = window_ret["train_hybrid_weights"].detach().cpu().squeeze(0)
+            if model_name == "dbhp" and model.params["dynamic_hybrid"]:
+                episode_weights[i_from:i_to] = window_ret["lambdas"].detach().cpu().squeeze(0)
 
         # Update episode ret
         episode_df_ret = {"target_df": episode_target, "mask_df": episode_mask}
@@ -281,8 +281,8 @@ class TraceHelper:
                     episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="upscale", dataset=dataset)
                 episode_df_ret[f"{key}_df"] = episode_pred_dict[key]
 
-        if model_name == "dbhp" and model.params["train_hybrid"]:
-            episode_df_ret["train_hybrid_weights"] = episode_weights
+        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
+            episode_df_ret["lambdas"] = episode_weights
         return episode_ret, episode_df_ret
 
     def predict(self, model: nn.Module, statistic_metrics=False, gap_models=None, dataset="soccer"):
@@ -300,10 +300,10 @@ class TraceHelper:
         model_keys = ["pred"]
         ret_keys = ["n_frames", "n_missings"]
         if model_name == "dbhp":
-            if model.params["physics_loss"]:
-                model_keys += ["physics_f", "physics_b"]
-            if model.params["train_hybrid"]:
-                model_keys += ["static_hybrid", "static_hybrid2", "train_hybrid"]
+            if model.params["deriv_accum"]:
+                model_keys += ["dap_f", "dap_b"]
+            if model.params["dynamic_hybrid"]:
+                model_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
         if statistic_metrics:
             model_keys += ["linear", "knn", "forward"]
 
@@ -315,7 +315,7 @@ class TraceHelper:
 
         # Init results dataframes (predictions, mask)
         df_dict = TraceHelper.init_results_df(self.traces, model_keys, player_cols)
-        if model_name == "dbhp" and model.params["train_hybrid"]:
+        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
             weights_cols = [f"{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
             hybrid_weight_df = self.traces.copy(deep=True)
             hybrid_weight_df[weights_cols] = -1
@@ -368,12 +368,10 @@ class TraceHelper:
 
                 # Update results dataframes (episode_predictions, episode_mask)
                 TraceHelper.update_results_df(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
-                if model_name == "dbhp" and model.params["train_hybrid"]:
+                if model_name == "dbhp" and model.params["dynamic_hybrid"]:
                     weight_player_cols = [c.split("_x")[0] for c in input_cols if "_x" in c]
                     input_weight_cols = [f"{p}{w}" for p in weight_player_cols for w in ["_w0", "_w1", "_w2"]]
-                    hybrid_weight_df.loc[episode_traces.index, input_weight_cols] = np.array(
-                        episode_df_ret["train_hybrid_weights"]
-                    )
+                    hybrid_weight_df.loc[episode_traces.index, input_weight_cols] = np.array(episode_df_ret["lambdas"])
 
                 for key in episode_ret:
                     ret[key] += episode_ret[key]
@@ -383,8 +381,8 @@ class TraceHelper:
             self.traces[x_cols] *= self.ps[0]
             self.traces[y_cols] *= self.ps[1]
 
-        if model_name == "dbhp" and model.params["train_hybrid"]:
-            df_dict["train_hybrid_weights_df"] = hybrid_weight_df
+        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
+            df_dict["lambdas_df"] = hybrid_weight_df
 
         return ret, df_dict
 

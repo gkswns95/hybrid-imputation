@@ -53,16 +53,13 @@ class BRITS(nn.Module):
         else:
             ball_data = data[1]
 
-        input_dict = {"target": target_data, "ball": ball_data}
+        data_dict = {"target": target_data, "ball": ball_data}
+        bs, seq_len = data_dict["target"].shape[:2]
 
-        bs, seq_len = input_dict["target"].shape[:2]
-
-        missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            data_dict=input_dict,
+            data=data_dict,
             mode=self.params["missing_pattern"],
-            window_size=seq_len,
-            missing_rate=missing_probs[random.randint(1, 9)],
+            missing_rate=random.randint(1, 9) * 0.1,
             sports=dataset,
         )
 
@@ -80,12 +77,12 @@ class BRITS(nn.Module):
         if self.params["cuda"]:
             mask, time_gap = mask.to(device), time_gap.to(device)
 
-        input_dict["mask"] = mask
-        input_dict["input"] = input_data * mask  # masking missing values
-        input_dict["delta"] = time_gap
+        data_dict["mask"] = mask
+        data_dict["input"] = input_data * mask  # masking missing values
+        data_dict["delta"] = time_gap
 
-        ret_f = self.rits_f(input_dict)
-        ret_b = self.reverse(self.rits_b(self.reverse(input_dict)))
+        ret_f = self.rits_f(data_dict)
+        ret_b = self.reverse(self.rits_b(self.reverse(data_dict)))
         ret = self.merge_ret(ret_f, ret_b, mode)
 
         if self.params["xy_sort"]:

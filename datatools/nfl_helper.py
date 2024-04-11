@@ -148,7 +148,7 @@ class NFLDataHelper(TraceHelper):
 
         output_dim = model.params["n_features"]
         output_dim *= model.params["n_players"]
-        if model.params["model"] == "NRTSI":
+        if model.params["model"] == "nrtsi":
             output_dim *= 4
 
         seq_len = input_traces.shape[1]
@@ -183,7 +183,7 @@ class NFLDataHelper(TraceHelper):
                 window_inputs = [window_input, window_target, window_ball]
             else:
                 window_inputs = [window_input, window_target]
-            if model.params["model"] == "NRTSI":
+            if model.params["model"] == "nrtsi":
                 window_ret = model.forward(
                     window_inputs, model=model, gap_models=gap_models, mode="test", device=device
                 )
@@ -248,11 +248,11 @@ class NFLDataHelper(TraceHelper):
 
         model_keys = ["pred"]
         ret_keys = ["n_frames", "n_missings"]
-        if model.params["model"] == "ours":
-            if model.params["physics_loss"]:
-                model_keys += ["physics_f", "physics_b"]
-            if model.params["train_hybrid"]:
-                model_keys += ["static_hybrid", "static_hybrid2", "train_hybrid"]
+        if model.params["model"] == "dbhp":
+            if model.params["deriv_accum"]:
+                model_keys += ["dap_f", "dap_b"]
+            if model.params["dynamic_hybrid"]:
+                model_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
         if statistic_metrics:
             model_keys += ["linear", "knn", "forward"]
 
@@ -311,14 +311,14 @@ class NFLDataHelper(TraceHelper):
         if not os.path.exists(fig_path):
             os.makedirs(fig_path)
 
-        if model.params["model"] == "NRTSI":
+        if model.params["model"] == "nrtsi":
             ckpt_path_dict = dict()
             ckpt_root_dir = f"./saved/{trial}/model/"
-            ckpt_path_dict[1] = os.path.join(ckpt_root_dir, "NRTSI_state_dict_best_gap_1.pt")
-            ckpt_path_dict[2] = os.path.join(ckpt_root_dir, "NRTSI_state_dict_best_gap_2.pt")
-            ckpt_path_dict[4] = os.path.join(ckpt_root_dir, "NRTSI_state_dict_best_gap_4.pt")
-            ckpt_path_dict[8] = os.path.join(ckpt_root_dir, "NRTSI_state_dict_best_gap_8.pt")
-            ckpt_path_dict[16] = os.path.join(ckpt_root_dir, "NRTSI_state_dict_best_gap_16.pt")
+            ckpt_path_dict[1] = os.path.join(ckpt_root_dir, "nrtsi_state_dict_best_gap_1.pt")
+            ckpt_path_dict[2] = os.path.join(ckpt_root_dir, "nrtsi_state_dict_best_gap_2.pt")
+            ckpt_path_dict[4] = os.path.join(ckpt_root_dir, "nrtsi_state_dict_best_gap_4.pt")
+            ckpt_path_dict[8] = os.path.join(ckpt_root_dir, "nrtsi_state_dict_best_gap_8.pt")
+            ckpt_path_dict[16] = os.path.join(ckpt_root_dir, "nrtsi_state_dict_best_gap_16.pt")
 
             ckpt_dict = dict()
             for key in ckpt_path_dict:
@@ -358,16 +358,16 @@ class NFLDataHelper(TraceHelper):
 
     @staticmethod
     def run_imputation(
-        model, exp_data, ckpt_dict, fig_path, n_sample=10, batch_size=64, save_all_imgs=False, model_name="NRTSI"
+        model, exp_data, ckpt_dict, fig_path, n_sample=10, batch_size=64, save_all_imgs=False, model_name="nrtsi"
     ):
 
         model.eval()
 
         device = next(model.parameters()).device
 
-        # if model_name == "NRTSI":
+        # if model_name == "nrtsi":
         #     imputer = NRTSIImputer(model.params).to(device=device)
-        # elif model_name == "ours":
+        # elif model_name == "dbhp":
         #     imputer = PeImputer(model.params).to(device=device)
 
         inds = np.arange(exp_data.shape[0])
@@ -422,7 +422,7 @@ class NFLDataHelper(TraceHelper):
                 bs, -1, -1
             )  # [bs, time, feat_dim]
 
-            if model_name == "NRTSI":
+            if model_name == "nrtsi":
                 for d in range(n_sample):
                     imputation = ground_truth.clone()
                     obs_list_np = sorted(list(set(np.arange(data.shape[0])) - set(missing_list_np)))
@@ -477,7 +477,7 @@ class NFLDataHelper(TraceHelper):
                     mask = mask.to(device)
                 mask = mask.transpose(0, 1)  # [time, bs, feat_dim]
 
-            elif model_name in ["ours", "BRITS", "NAOMI"]:
+            elif model_name in ["dbhp", "brits", "naomi"]:
                 input_dict = {}
 
                 # data[missing_list_np] = 0.0 # masking missing values
@@ -504,27 +504,27 @@ class NFLDataHelper(TraceHelper):
                     with torch.no_grad():
                         ret = model.forward2(input_dict, device=device)
 
-                    if model_name == "ours":
-                        if model.params["train_hybrid"]:
-                            imputation = ret["train_hybrid_pred"]
+                    if model_name == "dbhp":
+                        if model.params["dynamic_hybrid"]:
+                            imputation = ret["hybrid_d"]
                         else:
-                            imputation = ret["static_hybrid_pred"]
+                            imputation = ret["hybrid_s"]
                     else:
                         imputation = ret["pred"]
 
                     target_ = ret["target"]
                     mask_ = ret["mask"]
 
-                    xy_mask = reshape_tensor(mask_, dataset="football").flatten(2, 3)
-                    xy_target = reshape_tensor(target_, dataset="football").flatten(2, 3)
+                    xy_mask = reshape_tensor(mask_, dataset="afootball").flatten(2, 3)
+                    xy_target = reshape_tensor(target_, dataset="afootball").flatten(2, 3)
                     imputation = imputation * (1 - xy_mask) + xy_target * xy_mask
 
                     imputation = imputation.transpose(0, 1)  # [time, bs, x_dim]
                     target_ = target_.transpose(0, 1)
                     mask_ = mask_.transpose(0, 1)
 
-                    imputation_ = reshape_tensor(imputation, rescale=False, dataset="football")  # [time, bs, 6, 2]
-                    target_ = reshape_tensor(target_, rescale=False, dataset="football")
+                    imputation_ = reshape_tensor(imputation, rescale=False, dataset="afootball")  # [time, bs, 6, 2]
+                    target_ = reshape_tensor(target_, rescale=False, dataset="afootball")
 
                     step_size = torch.norm(imputation_[1:] - imputation_[:-1], dim=-1)
                     total_change_of_step_size += step_size.std(0).mean()
@@ -541,7 +541,7 @@ class NFLDataHelper(TraceHelper):
                     avg_mse += mse
                     min_mse[mse < min_mse] = mse[mse < min_mse]
 
-                    if model_name in ["ours", "BRITS", "NAOMI", "NRTSI"]:
+                    if model_name in ["dbhp", "brits", "naomi", "nrtsi"]:
                         pos_dist += calc_trace_dist(imputation_, target_, mask_, aggfunc="sum", dataset="football")
                         n_missings += bs * num_missing * 6
 

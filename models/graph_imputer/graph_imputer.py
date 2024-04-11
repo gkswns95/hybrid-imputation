@@ -315,13 +315,11 @@ class BidirectionalGraphImputer(nn.Module):
             "n_heads",
             "dropout",
             "pred_xy",
-            "physics_loss",
             "cartesian_accel",
             "transformer",
             "ppe",
             "fpe",
             "fpi",
-            "train_hybrid",
             "bidirectional",
             "dynamic_missing",
             "upper_bound",
@@ -362,26 +360,24 @@ class BidirectionalGraphImputer(nn.Module):
         self.backward_gi = GraphImputer(self.params)
 
     def forward(self, data, device="cuda:0"):
-        if len(data) == 3:  # Soccer
-            x, y, ball = data
+        if len(data) == 2:  # Soccer
+            player_data, ball_data = data
         else:
-            x, y = data
-            ball = []
-        input_dict = {"target": x, "ball": ball}
+            player_data = data
+            ball_data = []
+        data_dict = {"target": player_data, "ball": ball_data}
         ret = dict()
-        bs, seq_len, feat_dim = x.shape
-        x = x.to(self.device)
-        # Bidirectional
-        # Masking
-        missing_probs = np.arange(10) * 0.1
+        bs, seq_len, feat_dim = player_data.shape
+        player_data = player_data.to(self.device)
+
+        # masking
         mask = generate_mask(
-            data_dict=input_dict,
+            data=data_dict,
+            sports=self.params["dataset"],
             mode=self.missing_mode,
-            window_size=seq_len,
-            missing_rate=missing_probs[random.randint(1, 9)],
-            # missing_rate = self.missing_prob,
-            sports=self.dataset,
-        )
+            missing_rate=random.randint(1, 9) * 0.1,
+        )  # [bs, time, players]
+
         # import pickle
         # with open(f'mask_{self.missing_mode}.pkl', 'wb') as f:
         #     pickle.dump(mask, f)
@@ -404,13 +400,13 @@ class BidirectionalGraphImputer(nn.Module):
             )  # [bs, time, x_dim]
 
         mask = mask.to(self.device)
-        masked_x = x * mask
+        masked_x = player_data * mask
 
-        reversed_x = torch.flip(x, dims=[1])
+        reversed_x = torch.flip(player_data, dims=[1])
         reversed_masked_x = torch.flip(masked_x, dims=[1])
         reversed_mask = torch.flip(mask, dims=[1])
 
-        forward_out, forward_loss = self.forward_gi(x, masked_x, mask)
+        forward_out, forward_loss = self.forward_gi(player_data, masked_x, mask)
         backward_out, backward_loss = self.backward_gi(reversed_x, reversed_masked_x, reversed_mask)
         backward_out = torch.flip(backward_out, dims=[1])
 
@@ -424,11 +420,11 @@ class BidirectionalGraphImputer(nn.Module):
         loss = forward_loss + backward_loss
 
         pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
-        target_t = reshape_tensor(x, rescale=True, dataset=self.dataset)
+        target_t = reshape_tensor(player_data, rescale=True, dataset=self.dataset)
 
         # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
 
-        ret["target"] = x
+        ret["target"] = player_data
         ret["pred"] = out
         ret["mask"] = mask
         ret["total_loss"] = loss
@@ -444,16 +440,16 @@ class BidirectionalGraphImputer(nn.Module):
 
     @torch.no_grad()
     def evaluate(self, data, device="cuda:0"):
-        if len(data) == 3:  # Soccer
-            x, y, ball = data
+        if len(data) == 2:  # Soccer
+            player_data, ball_data = data
         else:
-            x, y = data
-            ball = []
+            player_data = data
+            ball_data = []
 
-        input_dict = {"target": x, "ball": ball}
+        data_dict = {"target": player_data, "ball": ball_data}
         ret = dict()
-        bs, seq_len, feat_dim = x.shape
-        x = x.to(self.device)
+        bs, seq_len, feat_dim = player_data.shape
+        player_data = player_data.to(self.device)
         if self.missing_prob == "random":
             missing_probs = np.arange(10) * 0.1
             missing_rate = missing_probs[random.randint(1, 9)]
@@ -461,13 +457,12 @@ class BidirectionalGraphImputer(nn.Module):
             missing_rate = self.missing_prob
 
         missing_probs = np.arange(10) * 0.1
-        mask = generate_mask(
-            data_dict=input_dict,
+        mask = mask = generate_mask(
+            data=data_dict,
+            sports=self.params["dataset"],
             mode=self.missing_mode,
-            window_size=seq_len,
-            missing_rate=missing_probs[random.randint(1, 9)],
-            sports=self.dataset,
-        )
+            missing_rate=missing_rate,
+        )  # [bs, time, players]
 
         if self.missing_mode == "camera":
             time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
@@ -486,13 +481,13 @@ class BidirectionalGraphImputer(nn.Module):
             )  # [bs, time, x_dim]
 
         mask = mask.to(self.device)
-        masked_x = x * mask
+        masked_x = player_data * mask
 
-        reversed_x = torch.flip(x, dims=[1])
+        reversed_x = torch.flip(player_data, dims=[1])
         reversed_masked_x = torch.flip(masked_x, dims=[1])
         reversed_mask = torch.flip(mask, dims=[1])
 
-        forward_out, forward_loss = self.forward_gi.sample(x, masked_x, mask)
+        forward_out, forward_loss = self.forward_gi.sample(player_data, masked_x, mask)
         backward_out, backward_loss = self.backward_gi.sample(reversed_x, reversed_masked_x, reversed_mask)
         backward_out = torch.flip(backward_out, dims=[1])
         # out = 0.5 * forward_out + 0.5 * backward_out #Fusion하는 부분 weight 다르게 수정
@@ -507,11 +502,11 @@ class BidirectionalGraphImputer(nn.Module):
         loss = forward_loss + backward_loss
 
         pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
-        target_t = reshape_tensor(x, rescale=True, dataset=self.dataset)
+        target_t = reshape_tensor(player_data, rescale=True, dataset=self.dataset)
 
         # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
 
-        ret["target"] = x
+        ret["target"] = player_data
         ret["pred"] = out
         ret["mask"] = mask
         ret["total_loss"] = loss

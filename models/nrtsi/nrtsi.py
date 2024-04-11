@@ -74,7 +74,7 @@ class NRTSI(nn.Module):
 
         missing_probs = np.arange(10) * 0.1
         mask_data = generate_mask(
-            data_dict=ret,
+            data=ret,
             mode=self.params["missing_pattern"],
             window_size=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],

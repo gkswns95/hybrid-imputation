@@ -19,7 +19,7 @@ python train.py \
 --cartesian_accel \
 --fpe \
 --fpi \
---train_hybrid \
+--dynamic_hybrid \
 --bidirectional \
 --n_epochs 100 \
 --start_lr 1e-3 \

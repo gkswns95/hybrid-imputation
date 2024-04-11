@@ -40,7 +40,7 @@ class VisualizeHelper:
             players = ["player" + str(i) for i in range(helper.total_players)]
 
         self.p_cols = [f"{p}{f}" for p in players for f in ["_x", "_y"]]
-        if "train_hybrid_df" in df_dict.keys():
+        if "hybrid_df" in df_dict.keys():
             self.w_cols = [f"{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
 
     def valid_episodes(self):
@@ -64,7 +64,7 @@ class VisualizeHelper:
                 {
                     "mask": "mask",
                     "target": "Ground Truth",
-                    "train_hybrid": "STRNN-DBHP",
+                    "hybrid_d": "STRNN-DBHP",
                     "nrtsi": "NRTSI",
                     "graph_imputer": "GraphImputer",
                     "naomi": "NAOMI",
@@ -77,14 +77,14 @@ class VisualizeHelper:
             pred_keys.update(
                 {
                     "pred": "STRNN-DP",
-                    "physics_f": "STRNN-DAP-F",
-                    "physics_b": "STRNN-DAP-B",
-                    "static_hybrid2": "STRNN-DBHP-S",
-                    "train_hybrid": "STRNN-DBHP-D",
+                    "dap_f": "STRNN-DAP-F",
+                    "dap_b": "STRNN-DAP-B",
+                    "hybrid_s2": "STRNN-DBHP-S",
+                    "hybrid_d": "STRNN-DBHP-D",
                 }
             )
         elif self.mode == "weights_heatmap":
-            pred_keys["train_hybrid_weights"] = "train_hybrid_weights"
+            pred_keys["lambdas"] = "lambdas"
 
         pred_keys.update({"target": "GroundTruth", "mask": "mask"})
 
@@ -162,9 +162,9 @@ class VisualizeHelper:
                 )
                 ax.set_title(title.format(i + 1), fontsize=20, loc="center")
 
-    def plot_train_hybrid_weights(self):
+    def plot_hybrid_weights(self):
         mask = self.pred_dict["window_mask"]
-        hybrid_weights = self.pred_dict["window_train_hybrid_weights"]
+        lambdas = self.pred_dict["window_lambdas"]
 
         m = reshape_tensor(mask, dataset=self.dataset)
         m = m[..., 1].squeeze(-1)
@@ -173,7 +173,7 @@ class VisualizeHelper:
         for i, title in enumerate(["STRNN-DP", "STRNN-DAP-F", "STRNN-DAP-B"]):
             ax = self.fig.add_subplot(1, 4, i + 1)
 
-            sns.heatmap(hybrid_weights[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax)
+            sns.heatmap(lambdas[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax)
 
             ax.set_xlabel("Agents", fontsize=12)
             ax.set_ylabel("Timesteps", fontsize=12)
@@ -246,7 +246,7 @@ class VisualizeHelper:
                 if key.startswith("tmp"):
                     continue
 
-                cols = self.w_cols if key == "train_hybrid_weights" else self.p_cols
+                cols = self.w_cols if key == "lambdas" else self.p_cols
                 epi_df = self.df_dict[f"{key}_df"][self.df_dict[f"{key}_df"]["episode"] == e][cols]
                 epi_df = epi_df[i_from:i_to].replace(-1, np.nan)
                 self.pred_dict[f"window_{key}"] = torch.tensor(epi_df.dropna(axis=1).values)
@@ -257,7 +257,7 @@ class VisualizeHelper:
             elif self.mode == "dist_heatmap":
                 self.plot_dist_heatmap()
             elif self.mode == "weights_heatmap":
-                self.plot_train_hybrid_weights()
+                self.plot_hybrid_weights()
 
             plt.tight_layout()
             self.fig.savefig(f"{path}/seq_{seq}", bbox_inches="tight")

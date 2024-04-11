@@ -1,7 +1,7 @@
 import math
 import random
 from copy import deepcopy
-from typing import Dict
+from typing import Dict, Tuple
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ def get_dataset_config(dataset):
     elif dataset == "basketball":
         players = 10
         ps = (28.65, 15.24)
-    elif dataset == "football":
+    elif dataset == "afootball":
         players = 6
         ps = (110, 49)
         # ps = (1, 1)
@@ -102,17 +102,11 @@ def is_inside(polygon_vertices, point):
     return missing_mask_np
 
 
-def generate_mask(
-    data_dict: Dict[str, torch.Tensor],
-    sports="soccer",
-    mode="camera",
-    window_size=200,
-    missing_rate=0.8,
-) -> np.ndarray:
+def generate_mask(data: Dict[str, torch.Tensor], sports="soccer", mode="camera", missing_rate=0.8) -> np.ndarray:
     assert mode in ["uniform", "playerwise", "camera"]
 
     n_players, _ = get_dataset_config(sports)
-    player_data = data_dict["target"]  # [bs, time, players * feats]
+    player_data = data["target"]  # [bs, time, players * feats]
 
     # compute the length of each sequence without padding
     if player_data.is_cuda:
@@ -122,6 +116,7 @@ def generate_mask(
 
     if mode == "uniform":  # assert the first and the last frames are not missing
         if sports == "afootball":
+            window_size = player_data.shape[1]
             mask = np.ones((window_size, n_players))
             # missing_len = random.randint(40, 49)
             missing_len = int(window_size * missing_rate)
@@ -163,7 +158,7 @@ def generate_mask(
                 mask[i, start_idxs[i, p] : end_idxs[i, p], p] = 0
 
     elif mode == "camera":  # assert the first and the last five frames are not missing
-        player_data, ball_data = data_dict["target"].clone().cpu(), data_dict["ball"].clone().cpu()
+        player_data, ball_data = data["target"].clone().cpu(), data["ball"].clone().cpu()
         player_xy = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
         ball_xy = normalize_tensor(ball_data, mode="upscale", dataset=sports)
 
@@ -185,38 +180,32 @@ def generate_mask(
     return mask
 
 
-def compute_deltas(masks: np.ndarray):
-    """
-    masks : [bs, time, n_agents]
-    """
-    cumsum_rmasks_f = (1 - masks).cumsum(axis=1)
-    cumsum_prevs_f = np.maximum.accumulate(cumsum_rmasks_f * masks, axis=1)
+def compute_deltas(mask: np.ndarray) -> Tuple[np.ndarray]:
+    cumsum_rmasks_f = (1 - mask).cumsum(axis=1)
+    cumsum_prevs_f = np.maximum.accumulate(cumsum_rmasks_f * mask, axis=1)
     deltas_f = cumsum_rmasks_f - cumsum_prevs_f
 
-    cumsum_rmasks_b = np.flip(1 - masks, axis=1).cumsum(axis=1)
-    cumsum_prevs_b = np.maximum.accumulate(cumsum_rmasks_b * np.flip(masks, axis=1), axis=1)
+    cumsum_rmasks_b = np.flip(1 - mask, axis=1).cumsum(axis=1)
+    cumsum_prevs_b = np.maximum.accumulate(cumsum_rmasks_b * np.flip(mask, axis=1), axis=1)
     deltas_b = np.flip(cumsum_rmasks_b - cumsum_prevs_b, axis=1)
 
-    return deltas_f, deltas_b
+    return deltas_f, deltas_b  # [bs, time, players]
 
 
-def time_interval(masks, time_gap, direction="f", mode="block"):
-    """
-    masks : [bs, time, n_players]
-    """
+def time_interval(mask, time_gap, direction="f", mode="block"):
     if direction == "b":
-        masks = np.flip(deepcopy(masks), axis=[0])
+        mask = np.flip(deepcopy(mask), axis=[0])  # [bs, time, n_players]
 
-    deltas = np.zeros(masks.shape)
+    deltas = np.zeros(mask.shape)
     if mode == "block":
-        for t in range(1, masks.shape[0]):
+        for t in range(1, mask.shape[0]):
             gap = time_gap[t] - time_gap[t - 1]
-            for p, m in enumerate(masks[t - 1]):
+            for p, m in enumerate(mask[t - 1]):
                 deltas[t, p] = gap + deltas[t - 1, p] if m == 0 else gap
     elif mode == "camera":
         for batch in range(deltas.shape[0]):
-            masks_ = masks[batch]  # [time, n_players]
-            for t in range(1, masks.shape[1]):
+            masks_ = mask[batch]  # [time, players]
+            for t in range(1, mask.shape[1]):
                 gap = time_gap[t] - time_gap[t - 1]
                 for p, m in enumerate(masks_[t - 1]):
                     deltas[batch, t, p] = gap + deltas[batch, t - 1, p] if m == 0 else gap
@@ -345,8 +334,14 @@ def calc_coherence_loss(p: torch.Tensor, v: torch.Tensor, a: torch.Tensor, m: to
 
 
 def calc_trace_dist(
-    pred_tensor, target_tensor, mask_tensor, n_features=None, rescale=True, aggfunc="mean", dataset="soccer"
-):
+    pred_tensor: torch.Tensor,
+    target_tensor: torch.Tensor,
+    mask_tensor: torch.Tensor,
+    n_features=None,
+    rescale=True,
+    aggfunc="mean",
+    dataset="soccer",
+) -> torch.Tensor:
     pred_xy = reshape_tensor(pred_tensor, rescale=rescale, n_features=n_features, dataset=dataset)
     target_xy = reshape_tensor(target_tensor, rescale=rescale, n_features=n_features, dataset=dataset)
     mask_xy = reshape_tensor(mask_tensor, n_features=n_features, dataset=dataset)
@@ -452,10 +447,10 @@ def calc_statistic_metrics(pred_traces, target_traces, mask, ret, imputer, datas
         )
     elif imputer == "forward":
         interp = torch.tensor(masked_traces.copy(deep=True).ffill(axis=0).bfill(axis=0).values)
-    elif imputer in ["target", "pred", "physics_f", "physics_b", "static_hybrid", "static_hybrid2", "train_hybrid"]:
+    elif imputer in ["target", "pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
         interp = pred_traces_
 
-    if imputer not in ["pred", "physics_f", "physics_b", "static_hybrid", "static_hybrid2", "train_hybrid"]:
+    if imputer not in ["pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
         ret[f"{imputer}_dist"] = calc_trace_dist(interp, target_traces_, mask_, aggfunc="sum", dataset=dataset)
         ret[f"{imputer}_pred"] = interp.clone()
 

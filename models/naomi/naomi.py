@@ -64,12 +64,11 @@ class NAOMI(nn.Module):
 
         bs, seq_len = input_data.shape[0], input_data.shape[1]
 
-        missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            data_dict=ret,
+            data=ret,
             mode=self.params["missing_pattern"],
             window_size=seq_len,
-            missing_rate=missing_probs[random.randint(1, 9)],
+            missing_rate=random.randint(1, 9) * 0.1,
             sports=dataset,
         )
         mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)

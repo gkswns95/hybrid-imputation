@@ -19,7 +19,7 @@ python train.py \
 --transformer \
 --fpe \
 --fpi \
---train_hybrid \
+--dynamic_hybrid \
 --bidirectional \
 --dynamic_missing \
 --stochastic \

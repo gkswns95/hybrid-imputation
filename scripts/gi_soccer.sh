@@ -19,7 +19,7 @@ python train.py \
 --cartesian_accel \
 --fpe \
 --fpi \
---train_hybrid \
+--dynamic_hybrid \
 --bidirectional \
 --dynamic_missing \
 --avg_length_loss \

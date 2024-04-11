@@ -23,25 +23,29 @@ def printlog(line):
         file.write(line + "\n")
 
 
-def loss_str(losses: dict):
-    loss_dict = [(key, losses[key]) for key in losses.keys() if key.endswith("_loss")]
-    dist_dict = [(key, losses[key]) for key in losses.keys() if key.endswith("_dist")]
-    acc_dict = [(key, losses[key]) for key in losses.keys() if key.endswith("accuracy")]
+def loss_str(loss_dict: dict):
+    # loss_dict = [(k, v) for k, v in losses.items() if k.endswith("_loss")]
+    # dist_dict = [(k, v) for k, v in losses.items() if k.endswith("_dist")]
+    # acc_dict = [(k, v) for k, v in losses.items() if k.endswith("accuracy")]
 
-    ret = "\n---------------Losses---------------\n"
-    for key, value in loss_dict:
-        ret += " {}: {:.4f} |".format(key, np.mean(value))
+    # ret = "\n---------------Losses---------------\n"
+    # for key, value in loss_dict:
+    #     ret += " {}: {:.4f} |".format(key, np.mean(value))
 
-    if len(dist_dict):
-        ret += "\n---------------Dists---------------\n"
-        for key, value in dist_dict:
-            ret += " {}: {:.4f} |".format(key, np.mean(value))
-    if len(acc_dict):
-        ret += "\n---------------Acc---------------\n"
-        for key, value in acc_dict:
-            ret += " {}: {:.4f} |".format(key, np.mean(value))
+    # if len(dist_dict):
+    #     ret += "\n---------------Dists---------------\n"
+    #     for key, value in dist_dict:
+    #         ret += " {}: {:.4f} |".format(key, np.mean(value))
+    # if len(acc_dict):
+    #     ret += "\n---------------Acc---------------\n"
+    #     for key, value in acc_dict:
+    #         ret += " {}: {:.4f} |".format(key, np.mean(value))
 
-    return ret[:-2]
+    ret = ""
+    for k, v in loss_dict.items():
+        if k.endswith("_loss") or k.endswith("_dist"):
+            ret += f" {k}: {np.mean(v):.4f} |"
+    return ret[1:-2]
 
 
 def hyperparams_str(epoch, hp):
@@ -59,31 +63,38 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
     loader = train_loader if train else valid_loader
     n_batches = len(loader)
 
-    loss_keys = ["total"]
-    pred_keys = ["pred"]
-    if model.module.params["model"] == "dbhp":
-        if model.module.params["n_features"] == 6:
-            loss_keys += ["pos", "vel", "accel"]
-        if model.module.params["physics_loss"]:
-            pred_keys += ["physics_f", "physics_b"]
-            if model.module.params["train_hybrid"]:
-                pred_keys += ["train_hybrid"]
+    # loss_keys = ["total"]
+    # pred_keys = ["pred"]
+    # if model.module.params["model"] == "dbhp":
+    #     if model.module.params["n_features"] == 6:
+    #         loss_keys += ["pos", "vel", "accel"]
+    #     if model.module.params["deriv_accum"]:
+    #         pred_keys += ["dap_f", "dap_b"]
+    #         if model.module.params["dynamic_hybrid"]:
+    #             pred_keys += ["hybrid_d"]
 
-        loss_keys += pred_keys
+    # loss_keys += pred_keys
 
-    loss_dict = {f"{key}_loss": [] for key in loss_keys if key != "pred"}
-    dist_dict = {f"{key}_dist": [] for key in pred_keys}
+    # loss_dict = {f"{k}_loss": [] for k in loss_keys if k != "pred"}
+    # dist_dict = {f"{k}_dist": [] for k in pred_keys}
+
+    loss_dict = {"total_loss": [], "pred_dist": []}
+    if model.module.params["model"] == "dbhp" and model.module.params["deriv_accum"]:
+        loss_dict["dap_f_dist"] = []
+        loss_dict["dap_b_dist"] = []
+        if model.module.params["dynamic_hybrid"]:
+            loss_dict["hybrid_d_dist"] = []
 
     for batch_idx, data in enumerate(loader):
         if model.module.params["model"] in ["dbhp", "brits", "naomi", "graph_imputer"]:
             if train:
-                out = model(data, device=default_device)
+                ret = model(data, device=default_device)
             else:
                 with torch.no_grad():
                     if model.module.params["model"] != "graph_imputer":
-                        out = model(data, device=default_device)
+                        ret = model(data, device=default_device)
                     else:
-                        out = model.module.evaluate(data, device=default_device)
+                        ret = model.module.evaluate(data, device=default_device)
 
         if model.module.params["model"] == "nrtsi":
             min_gap, max_gap, cur_lr, ta = train_args
@@ -94,22 +105,21 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
 
             optimizer.param_groups[0]["lr"] = cur_lr
             if train:
-                out = model(data, model=model, teacher_forcing=ta, device=default_device)
+                ret = model(data, model=model, teacher_forcing=ta, device=default_device)
             else:
                 with torch.no_grad():
-                    out = model(data, model=model, teacher_forcing=ta, device=default_device)
+                    ret = model(data, model=model, teacher_forcing=ta, device=default_device)
 
-        loss = out["total_loss"]
+        for k in loss_dict:
+            loss_dict[k] += [ret[k].item()]
 
-        for l_key in loss_dict:
-            loss_dict[l_key] += [out[l_key].item()]
+        # for k in dist_dict:
+        #     dist_dict[k] += [ret[k].item()]
 
-        for d_key in dist_dict:
-            dist_dict[d_key] += [out[d_key].item()]
-
-        loss_dict.update(dist_dict)
+        # loss_dict.update(dist_dict)
 
         if train:
+            loss = ret["total_loss"]
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.module.parameters(), clip)
@@ -129,10 +139,12 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("-t", "--trial", type=int, required=True)
 parser.add_argument("--dataset", type=str, required=True, default="soccer", help="soccer, basketball, afootball")
-parser.add_argument("--model", type=str, required=True, default="dbhp")
 parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, playerwise, camera")
+parser.add_argument("--model", type=str, required=True, default="dbhp")
 parser.add_argument("--n_features", type=int, required=False, default=2, help="num features")
-parser.add_argument("--normalize", action="store_true", default=False, help="normalize data")
+parser.add_argument("--window_size", type=int, required=False, default=200, help="for SportsDataset")
+parser.add_argument("--window_stride", type=int, required=False, default=5, help="for SportsDataset")
+parser.add_argument("--normalize", action="store_true", default=False, help="normalize the position scale")
 parser.add_argument("--flip_pitch", action="store_true", default=False, help="augment data by flipping the pitch")
 
 parser.add_argument("--n_epochs", type=int, required=False, default=200, help="num epochs")
@@ -158,12 +170,15 @@ if __name__ == "__main__":
     # Parameters to save
     params = {
         "trial": args.trial,
+        "missing_pattern": args.missing_pattern,
         "dataset": args.dataset,
-        "n_epochs": args.n_epochs,
         "model": args.model,
         "n_features": args.n_features,
+        "window_size": args.window_size,
+        "window_stride": args.window_stride,
         "normalize": args.normalize,
         "flip_pitch": args.flip_pitch,
+        "n_epochs": args.n_epochs,
         "batch_size": args.batch_size,
         "start_lr": args.start_lr,
         "min_lr": args.min_lr,
@@ -213,8 +228,8 @@ if __name__ == "__main__":
         print("{}/model/{}_state_dict_best.pt".format(save_path, args.model))
         model.module.load_state_dict(state_dict)
     else:
-        title = f"{args.trial} | {args.model}"
-        print_keys = ["flip_pitch", "n_features", "batch_size", "start_lr"]
+        title = f"{args.trial} {args.dataset} {args.missing_pattern} {args.model}"
+        print_keys = ["n_features", "window_size", "window_stride", "flip_pitch", "start_lr"]
 
         printlog(title)
         printlog(model.module.params_str)
@@ -230,10 +245,8 @@ if __name__ == "__main__":
         metrica_paths = [f"data/metrica_traces/{f}" for f in metrica_files]
         train_paths = metrica_paths[:-1]
         valid_paths = metrica_paths[-1:]
-
-        window_size = 200
+        window_size = args.window_size
         episode_min_len = 100
-        train_stride = 5
 
     elif args.dataset == "basketball":  # Basketball (NBA) dataset
         nba_files = os.listdir("data/nba_traces")
@@ -241,19 +254,15 @@ if __name__ == "__main__":
         nba_paths.sort()
         train_paths = nba_paths[:70]
         valid_paths = nba_paths[70:90]
-
-        window_size = 200
+        window_size = args.window_size
         episode_min_len = 100
-        train_stride = 200
 
     else:  # American football (NFL) dataset
         nfl_paths = ["data/nfl_traces/nfl_train.csv", "data/nfl_traces/nfl_test.csv"]
         train_paths = nfl_paths[:-1]
         valid_paths = nfl_paths[-1:]
-
         window_size = 50
         episode_min_len = 50
-        train_stride = 5
 
     train_dataset = SportsDataset(
         sports=args.dataset,
@@ -261,7 +270,7 @@ if __name__ == "__main__":
         n_features=args.n_features,
         window_size=window_size,
         episode_min_len=episode_min_len,
-        stride=train_stride,
+        stride=args.window_stride,
         normalize=args.normalize,
         flip_pitch=args.flip_pitch,
     )
@@ -293,27 +302,21 @@ if __name__ == "__main__":
     )
 
     # Train loop
-    best_test_loss = args.best_loss
+    best_valid_loss = args.best_loss
 
     epochs_since_best = 0
     lr = max(args.start_lr, args.min_lr)
 
-    train_data_len = f"Train data len : {len(train_dataset)}"
-    test_data_len = f"Test data len : {len(valid_dataset)}"
-    printlog(train_data_len)
-    printlog(test_data_len)
+    print(f"Training dataset size: {len(train_dataset)}")
+    print(f"Validation dataset size: {len(valid_dataset)}")
 
     # writer = SummaryWriter(f"runs/{params['model']}_trial({params['trial']})")
     for e in range(n_epochs):
         epoch = e + 1
-
         hyperparams = {"pretrain": epoch <= pretrain_time}
 
         # Remove parameters with requires_grad=False (https://github.com/pytorch/pytorch/issues/679)
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.module.parameters()), lr=lr)
-
-        printlog(hyperparams_str(epoch, hyperparams))
-        start_time = time.time()
 
         if args.model == "nrtsi":
             train_args, reset_best_loss, save_model = get_gap_lr_bs(args.dataset, e, args.start_lr, use_ta=1)
@@ -321,16 +324,16 @@ if __name__ == "__main__":
             train_args = None
 
         # Set a custom learning rate schedule
-        if args.model != "NRTSI":
+        if args.model != "nrtsi":
             if epochs_since_best == 2 and lr > args.min_lr:
                 # Load previous best model
                 path = "{}/model/{}_state_dict_best.pt".format(save_path, args.model)
-                if args.model == "NRTSI":
+                if args.model == "nrtsi":
                     path = "{}/model/{}_state_dict_best_gap_{}.pt".format(save_path, args.model, train_args[1])
 
                 if epoch <= pretrain_time:
                     path = "{}/model/{}_state_dict_best_pretrain.pt".format(save_path, args.model)
-                    if args.model == "NRTSI":
+                    if args.model == "nrtsi":
                         path = "{}/model/{}_state_dict_best_gap_{}.pt".format(save_path, args.model, train_args[1])
                 state_dict = torch.load(path)
 
@@ -341,28 +344,31 @@ if __name__ == "__main__":
             else:
                 epochs_since_best += 1
 
+        printlog(hyperparams_str(epoch, hyperparams))
+        start_time = time.time()
+
         train_losses = run_epoch(model, optimizer, train=True, print_every=print_every, train_args=train_args)
         printlog("Train:\t" + loss_str(train_losses))
 
-        test_losses = run_epoch(model, optimizer, train=False, train_args=train_args)
-        printlog("Test:\t" + loss_str(test_losses))
+        valid_losses = run_epoch(model, optimizer, train=False, train_args=train_args)
+        printlog("Valid:\t" + loss_str(valid_losses))
 
         # Write learning curve on tensorboard
         # for key in train_losses.keys():
         #     key_str = "Loss" if key.endswith("loss") else "Dist"
         #     writer.add_scalar(f"{key_str}/train_{key}", train_losses[key], epoch)
-        # for key in test_losses.keys():
+        # for key in valid_losses.keys():
         #     key_str = "Loss" if key.endswith("loss") else "Dist"
-        #     writer.add_scalar(f"{key_str}/valid_{key}", test_losses[key], epoch)
+        #     writer.add_scalar(f"{key_str}/valid_{key}", valid_losses[key], epoch)
 
         epoch_time = time.time() - start_time
-        printlog("Time:\t {:.2f}s".format(epoch_time))
+        printlog("Time:\t{:.2f}s".format(epoch_time))
 
-        total_test_loss = sum([value for key, value in test_losses.items() if key.endswith("loss")])
+        valid_loss = sum([value for key, value in valid_losses.items() if key.endswith("loss")])
         # Best model on test set
         if args.model != "nrtsi":
-            if best_test_loss == 0 or total_test_loss < best_test_loss:
-                best_test_loss = total_test_loss
+            if best_valid_loss == 0 or valid_loss < best_valid_loss:
+                best_valid_loss = valid_loss
                 epochs_since_best = 0
 
                 path = "{}/model/{}_state_dict_best.pt".format(save_path, args.model)
@@ -381,25 +387,25 @@ if __name__ == "__main__":
             # End of pretrain stage
             if epoch == pretrain_time:
                 printlog("######### End Pretrain ##########")
-                best_test_loss = 0
+                best_valid_loss = 0
                 epochs_since_best = 0
                 lr = max(args.start_lr, args.min_lr)
 
                 state_dict = torch.load("{}/model/{}_state_dict_best_pretrain.pt".format(save_path, args.model))
                 model.module.load_state_dict(state_dict)
 
-                test_losses = run_epoch(model, optimizer, train=False)
-                printlog("Test:\t" + loss_str(test_losses))
+                valid_losses = run_epoch(model, optimizer, train=False)
+                printlog("Test:\t" + loss_str(valid_losses))
 
         else:  # for NRTSI model
             if reset_best_loss:
-                best_test_loss = 0
+                best_valid_loss = 0
 
-            if best_test_loss == 0 or total_test_loss < best_test_loss:
-                best_test_loss = total_test_loss
+            if best_valid_loss == 0 or valid_loss < best_valid_loss:
+                best_valid_loss = valid_loss
 
                 path = "{}/model/{}_state_dict_best_gap_{}.pt".format(save_path, args.model, train_args[1])
                 torch.save(model.module.state_dict(), path)
                 printlog(f"########## Best Model (max_gap : {train_args[1]}) ###########")
 
-    printlog("Best Test Loss: {:.4f}".format(best_test_loss))
+    printlog("Best Test Loss: {:.4f}".format(best_valid_loss))
