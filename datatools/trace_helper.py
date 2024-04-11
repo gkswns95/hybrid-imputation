@@ -274,11 +274,11 @@ class TraceHelper:
             if key in ["pred", "target"]:
                 episode_traces = episode_pred if key == "pred" else episode_target
                 if model.params["normalize"]:
-                    episode_traces = normalize_tensor(episode_traces, mode="reverse", dataset=dataset)
+                    episode_traces = normalize_tensor(episode_traces, mode="upscale", dataset=dataset)
                 episode_df_ret[f"{key}_df"] = episode_traces
             else:
                 if model.params["normalize"]:
-                    episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="reverse", dataset=dataset)
+                    episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="upscale", dataset=dataset)
                 episode_df_ret[f"{key}_df"] = episode_pred_dict[key]
 
         if model_name == "dbhp" and model.params["train_hybrid"]:

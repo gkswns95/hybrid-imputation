@@ -226,11 +226,11 @@ class NFLDataHelper(TraceHelper):
         for key in model_keys:
             if key == "pred":
                 if model.params["normalize"]:
-                    episode_pred = normalize_tensor(episode_pred, mode="reverse")
+                    episode_pred = normalize_tensor(episode_pred, mode="upscale")
                 episode_df_ret["pred_df"] = episode_pred
             else:
                 if model.params["normalize"]:
-                    episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="reverse")
+                    episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="upscale")
                 episode_df_ret[f"{key}_df"] = episode_pred_dict[key]
 
         return episode_ret, episode_df_ret

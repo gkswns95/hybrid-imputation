@@ -59,14 +59,14 @@ class BRITS(nn.Module):
 
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            inputs=input_dict,
+            data_dict=input_dict,
             mode=self.params["missing_pattern"],
-            ws=seq_len,
+            window_size=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
-            dataset=dataset,
+            sports=dataset,
         )
 
-        if self.params["missing_pattern"] == "camera_simulate":
+        if self.params["missing_pattern"] == "camera":
             time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
             mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, n_players]
             mask = torch.repeat_interleave(mask, n_features, dim=-1)

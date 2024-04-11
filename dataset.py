@@ -126,8 +126,8 @@ class SportsDataset(Dataset):
             player_data = player_data.reshape(player_data.shape[0], self.ws, -1, len(self.feature_types))
             player_data = player_data[..., :n_features].reshape(player_data.shape[0], self.ws, -1)
 
-        self.player_data = torch.FloatTensor(player_data)  # [bs, ws, players * feats]
-        self.ball_data = torch.FloatTensor(ball_data)  # [bs, ws, 2], only for soccer dataset
+        self.player_data = torch.FloatTensor(player_data)  # [bs, time, players * feats]
+        self.ball_data = torch.FloatTensor(ball_data)  # [bs, time, 2], only for soccer dataset
 
     def __getitem__(self, i):
         if self.sports != "basketball" and self.flip_pitch:
@@ -167,7 +167,7 @@ class SportsDataset(Dataset):
                 ball_data = np.copy(self.ball_data[i])
                 ball_data[..., [0]] = ball_data[..., [0]] * sign_x + ref_x
                 ball_data[..., [1]] = ball_data[..., [1]] * sign_y + ref_y
-                return player_data, ball_data
+                return player_data, torch.FloatTensor(ball_data)
             else:
                 return player_data
 

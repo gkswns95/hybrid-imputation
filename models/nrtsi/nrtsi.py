@@ -74,11 +74,11 @@ class NRTSI(nn.Module):
 
         missing_probs = np.arange(10) * 0.1
         mask_data = generate_mask(
-            inputs=ret,
+            data_dict=ret,
             mode=self.params["missing_pattern"],
-            ws=seq_len,
+            window_size=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
-            dataset=dataset,
+            sports=dataset,
         )
         mask_data = torch.tensor(mask_data, dtype=torch.float32).unsqueeze(0)
         mask_data = torch.repeat_interleave(mask_data, n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]

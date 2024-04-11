@@ -345,12 +345,12 @@ class BidirectionalGraphImputer(nn.Module):
 
         self.missing_mode = "block" if self.params["dynamic_missing"] else "block_all_feat"
         if self.params["dynamic_missing"]:
-            if self.params["m_pattern"] == "camera_simulate":
-                self.missing_mode = "camera_simulate"
+            if self.params["m_pattern"] == "camera":
+                self.missing_mode = "camera"
             else:
-                self.missing_mode = "player_wise"
+                self.missing_mode = "playerwise"
         else:
-            self.missing_mode = "all_player"
+            self.missing_mode = "uniform"
 
         self.dataset = params["dataset"]
         self.n_features = params["n_features"]
@@ -375,19 +375,19 @@ class BidirectionalGraphImputer(nn.Module):
         # Masking
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            inputs=input_dict,
+            data_dict=input_dict,
             mode=self.missing_mode,
-            ws=seq_len,
+            window_size=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
             # missing_rate = self.missing_prob,
-            dataset=self.dataset,
+            sports=self.dataset,
         )
         # import pickle
         # with open(f'mask_{self.missing_mode}.pkl', 'wb') as f:
         #     pickle.dump(mask, f)
         # print('mask saved')
 
-        if self.missing_mode == "camera_simulate":
+        if self.missing_mode == "camera":
             time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
             mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
             time_gap = torch.tensor(time_gap, dtype=torch.float32)
@@ -462,14 +462,14 @@ class BidirectionalGraphImputer(nn.Module):
 
         missing_probs = np.arange(10) * 0.1
         mask = generate_mask(
-            inputs=input_dict,
+            data_dict=input_dict,
             mode=self.missing_mode,
-            ws=seq_len,
+            window_size=seq_len,
             missing_rate=missing_probs[random.randint(1, 9)],
-            dataset=self.dataset,
+            sports=self.dataset,
         )
 
-        if self.missing_mode == "camera_simulate":
+        if self.missing_mode == "camera":
             time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
             mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
             time_gap = torch.tensor(time_gap, dtype=torch.float32)

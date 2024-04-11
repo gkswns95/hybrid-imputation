@@ -79,7 +79,7 @@ class NRTSI(nn.Module):
         missing_mode = "block" if self.params["dynamic_missing"] else "block_all_feat"
         missing_probs = np.arange(10) * 0.1
         mask_data = generate_mask(
-            mode=missing_mode, ws=seq_len, missing_rate=missing_probs[random.randint(1, 9)], dataset=dataset
+            mode=missing_mode, window_size=seq_len, missing_rate=missing_probs[random.randint(1, 9)], sports=dataset
         )
         mask_data = torch.tensor(mask_data, dtype=torch.float32).unsqueeze(0)
         mask_data = torch.repeat_interleave(mask_data, n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]

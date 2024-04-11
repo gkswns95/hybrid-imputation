@@ -1,6 +1,7 @@
 import math
 import random
 from copy import deepcopy
+from typing import Dict
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -12,8 +13,6 @@ from shapely.geometry import Point, Polygon
 from sklearn.impute import KNNImputer
 from sklearn.metrics import auc, confusion_matrix, f1_score, roc_curve
 from torch.autograd import Variable
-
-import models
 
 
 def get_dataset_config(dataset):
@@ -35,7 +34,7 @@ def get_dataset_config(dataset):
     return players, ps
 
 
-def is_inside(polygon, point):
+def is_inside(polygon_vertices, point):
     def cross(p1, p2, on_line_mask, counters):
         x1, y1 = p1[0], p1[1]  # [bs, time]
         x2, y2 = p2[0], p2[1]
@@ -92,8 +91,8 @@ def is_inside(polygon, point):
     on_line_mask = torch.zeros(bs, seq_len, n_players)
     counters = torch.zeros(bs, seq_len, n_players)
 
-    for x in range(len(polygon)):
-        on_line_mask, counters = cross(polygon[x], polygon[x - 1], on_line_mask, counters)
+    for x in range(len(polygon_vertices)):
+        on_line_mask, counters = cross(polygon_vertices[x], polygon_vertices[x - 1], on_line_mask, counters)
 
     is_contain_mask = counters % 2 == 0
 
@@ -103,74 +102,79 @@ def is_inside(polygon, point):
     return missing_mask_np
 
 
-def generate_mask(inputs, mode="random", ws=100, missing_rate=0.8, dataset="soccer"):
+def generate_mask(
+    data_dict: Dict[str, torch.Tensor],
+    sports="soccer",
+    mode="camera",
+    window_size=200,
+    missing_rate=0.8,
+) -> np.ndarray:
+    assert mode in ["uniform", "playerwise", "camera"]
 
-    assert mode in ["uniform", "indep", "camera"]
+    player_data = data_dict["target"]  # [bs, time, players * feats]
+    valid_lens = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs], length without padding
+    n_players, _ = get_dataset_config(sports)
 
-    total_players, _ = get_dataset_config(dataset)
-    n_missing = int(ws * total_players * missing_rate)  # total missing values
-    min_len = int(ws * 0.3)
-    max_len = int(ws * 0.9)
-    if mode == "indep":
-        player_list = list(range(total_players))
-        episode_mask = np.ones((ws, total_players))
-        while n_missing > 0:
-            missing_player = random.choice(player_list)
-            if n_missing < min_len:
-                block_len = random.randint(1, n_missing)
-            else:
-                block_len = random.randint(min_len, max_len)
+    if mode == "uniform":  # assert the first and the last frames are not missing
+        if sports == "afootball":
+            mask = np.ones((window_size, n_players))
+            # missing_len = random.randint(40, 49)
+            missing_len = int(window_size * missing_rate)
+            mask[random.sample(range(1, window_size - 1), missing_len)] = 0
 
-            start_idx = random.randint(1, ws - block_len)
-            end_idx = start_idx + block_len
-
-            overlap_len = (episode_mask[start_idx:end_idx, missing_player] == 0).sum()
-            episode_mask[start_idx:end_idx, missing_player] = 0
-
-            block_len -= overlap_len
-            n_missing -= block_len
-
-            if n_missing <= 0:
-                break
-
-        episode_mask[0] = 1
-        episode_mask[-1] = 1
-
-    elif mode == "uniform":
-        if dataset == "afootball":
-            episode_mask = np.ones((ws, total_players))
-            num_missing = random.randint(40, 49)
-            missing_list_np = np.array(random.sample(range(ws), num_missing))
-            episode_mask[missing_list_np] = 0
-            episode_mask[0] = 1
-            episode_mask[-1] = 1
         else:
-            block_len = int(ws * missing_rate)  # total missing values
-            episode_mask = np.ones((ws, total_players))
+            mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+            missing_lens = (valid_lens * missing_rate).astype(int)  # [bs], number of missing values per player
+            start_idxs = np.random.randint(1, valid_lens - missing_len - 1)
+            end_idxs = start_idxs + missing_len
+            for i in range(mask.shape[0]):
+                mask[i, start_idxs[i] : end_idxs[i]] = 0
 
-            start_idx = random.randint(1, ws - block_len)
-            end_idx = start_idx + block_len
+    elif mode == "playerwise":  # assert the first and the last frames are not missing
+        mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        missing_lens = np.zeros((mask.shape[0], n_players)).astype(int)  # [bs, players]
+        # numbers of player-wise missing values (will increase during the while-loops)
 
-            episode_mask[start_idx:end_idx, :] = 0
+        residue = (valid_lens * n_players * missing_rate).astype(int)  # [bs]
+        # total remaining number of missing values (will decrease during the while-loops)
+        max_shares = np.tile(valid_lens - 10, (n_players, 1)).T  # [bs, players]
+        assert np.all(residue < max_shares.sum(axis=-1))
 
-            episode_mask[0] = 1
-            episode_mask[-1] = 1
+        for i in range(mask.shape[0]):
+            while residue[i] > 0:  # iteratively distribute residue to the players with available slots
+                slots = missing_lens[i] < max_shares[i]  # [players]
+                breakpoints = np.random.choice(residue[i] + 1, slots.astype(int).sum() - 1, replace=True)
+                shares = np.diff(np.sort(breakpoints.tolist() + [0, residue[i]]))  # [players]
 
-    elif mode == "camera":
-        target, ball = inputs["target"].clone().cpu(), inputs["ball"].clone().cpu()
-        target_xy = reshape_tensor(target, rescale=True, dataset=dataset)  # [bs, time, players, 2]
-        ball_loc = normalize_tensor(ball, mode="reverse", dataset=dataset)
+                missing_lens[i, ~slots] = max_shares[i, ~slots]
+                missing_lens[i, slots] += shares
+                residue[i] = np.clip(missing_lens[i] - max_shares[i], 0, None).sum()  # clip the overflowing shares
 
-        bs = target.shape[0]
-        poly_coords = compute_polygon_loc(ball_loc)
+        start_idxs = np.random.randint(1, max_shares - missing_lens + 2)  # [bs, players]
+        end_idxs = start_idxs + missing_lens  # [bs, players]
 
-        # Check whether the camera view contains the player's (x, y) position or not
-        # is_contains => On-screen players : 1, Off-screen players : 0
-        episode_mask = is_inside(poly_coords, target_xy)  # [bs, time, players]
-        episode_mask[:, :5, :] = 1
-        episode_mask[:, -5:, :] = 1
+        for i in range(mask.shape[0]):
+            for p in range(n_players):
+                mask[i, start_idxs[i, p] : end_idxs[i, p], p] = 0
 
-    return episode_mask
+    elif mode == "camera":  # assert the first and the last five frames are not missing
+        player_data, ball_data = data_dict["target"].clone().cpu(), data_dict["ball"].clone().cpu()
+        player_xy = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
+        ball_xy = normalize_tensor(ball_data, mode="upscale", dataset=sports)
+
+        # check whether the camera view covers each player's position or not
+        # is_inside = 1 for on-screen players and 0 for off-screen players
+        camera_vertices = compute_camera_coverage(ball_xy)
+        mask = is_inside(camera_vertices, player_xy)  # [bs, time, players]
+
+        is_pad = np.array(player_data[..., :1] == -100).astype(int)
+        mask = (1 - is_pad) * mask + is_pad
+
+        mask[:, :5, :] = 1
+        for i in range(mask.shape[0]):
+            mask[i, valid_lens[i] - 5 :] = 1
+
+    return mask
 
 
 def compute_deltas(masks: np.ndarray):
@@ -212,7 +216,7 @@ def time_interval(masks, time_gap, direction="f", mode="block"):
     return torch.tensor(deltas, dtype=torch.float32)
 
 
-def random_permutation(input, players=6, permutations=None):
+def random_permutation(input: torch.Tensor, players=6, permutations=None) -> torch.Tensor:
     bs, seq_len = input.shape[:2]
     input_ = input.reshape(bs, seq_len, players, -1)  # [bs, time, players, feat_dim]
 
@@ -248,7 +252,7 @@ def random_permutation(input, players=6, permutations=None):
 #     return sorted_tensor.flatten(2,3) # [bs, seq_len, feat_dim]
 
 
-def xy_sort_tensor(tensor, sort_idxs_tensor=None, n_players=22, mode="sort"):
+def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mode="sort"):
     """
     - tensor : [bs, seq_len, feat_dim]
     """
@@ -377,8 +381,8 @@ def step_changes_path_len_err(pred_traces, target_traces, mask, dataset="soccer"
     target_traces = reshape_tensor(target_traces, dataset=dataset)
     mask = reshape_tensor(mask, dataset=dataset)
 
-    pred_traces = normalize_tensor(pred_traces, mode="reverse", dataset=dataset)
-    target_traces = normalize_tensor(target_traces, mode="reverse", dataset=dataset)
+    pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset=dataset)
+    target_traces = normalize_tensor(target_traces, mode="upscale", dataset=dataset)
 
     pred_traces = mask * target_traces + (1 - mask) * pred_traces
 
@@ -403,8 +407,8 @@ def calc_speed_err(pred_traces, target_traces, mask, dataset="soccer"):
     target_traces : [time, n_players * 2]
     mask : [time, n_players * 2]
     """
-    pred_traces = normalize_tensor(pred_traces, mode="reverse", dataset=dataset)
-    target_traces = normalize_tensor(target_traces, mode="reverse", dataset=dataset)
+    pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset=dataset)
+    target_traces = normalize_tensor(target_traces, mode="upscale", dataset=dataset)
 
     pred_traces = mask * target_traces + (1 - mask) * pred_traces
 
@@ -457,15 +461,16 @@ def calc_statistic_metrics(pred_traces, target_traces, mask, ret, imputer, datas
     return ret
 
 
-def reshape_tensor(tensor, rescale=False, n_features=None, mode="xy", dataset="soccer"):
+def reshape_tensor(tensor: torch.Tensor, rescale=False, n_features=None, mode="pos", dataset="soccer") -> torch.Tensor:
     players, ps = get_dataset_config(dataset)
 
     tensor = tensor.clone()
     feat_dim = tensor.shape[-1] // players if n_features is None else n_features
-    idx_map = {"xy": (0, 1), "vel": (2, 3), "speed": (4,), "accel": (5,), "cartesian_accel": (4, 5)}
-    idx = idx_map.get(mode, None)
 
+    idx_map = {"pos": (0, 1), "vel": (2, 3), "speed": (4,), "accel": (5,), "cartesian_accel": (4, 5)}
+    idx = idx_map.get(mode, None)
     assert idx is not None, f"Invalid mode name : {mode}"
+
     tensor_x = tensor[..., idx[0] :: feat_dim, None]
     tensor_y = tensor[..., idx[1] :: feat_dim, None] if len(idx) == 2 else None
 
@@ -473,24 +478,21 @@ def reshape_tensor(tensor, rescale=False, n_features=None, mode="xy", dataset="s
         tensor_x *= ps[0]
         tensor_y *= ps[1]
 
-    reshape_tensor = torch.cat([tensor_x, tensor_y], dim=-1) if tensor_y is not None else tensor_x
-
-    return reshape_tensor
+    return torch.cat([tensor_x, tensor_y], dim=-1) if tensor_y is not None else tensor_x
 
 
-def normalize_tensor(tensor, mode="reverse", dataset="soccer"):
+def normalize_tensor(tensor, mode="upscale", dataset="soccer"):
     tensor = tensor.clone()
-
     players, ps = get_dataset_config(dataset)
 
     n_features = tensor.shape[-1] // players
     if tensor.shape[-1] < players:
         n_features = tensor.shape[-1]
 
-    if mode == "reverse":
+    if mode == "upscale":
         tensor[..., 0::n_features] *= ps[0]
         tensor[..., 1::n_features] *= ps[1]
-    else:  # normalization
+    else:  # if mode == "downscale":
         tensor[..., 0::n_features] /= ps[0]
         tensor[..., 1::n_features] /= ps[1]
 
@@ -533,7 +535,7 @@ def load_pretrained_model(model, params, freeze=False, trial_num=301):
     return model
 
 
-def compute_polygon_loc(ball_loc, camera_info=(0, -20, 20, 30), pitch_size=(108, 72)):
+def compute_camera_coverage(ball_xy, camera_info=(0, -20, 20, 30), pitch_size=(108, 72)):
     # Camera info
     camera_x = camera_info[0]
     camera_y = camera_info[1]
@@ -542,19 +544,19 @@ def compute_polygon_loc(ball_loc, camera_info=(0, -20, 20, 30), pitch_size=(108,
 
     # Camera settings
     camera_x = pitch_size[0] / 2
-    camera_loc = torch.tensor([camera_x, camera_y])
+    camera_xy = torch.tensor([camera_x, camera_y])
     camera_height = camera_z
     camera_ratio = (16, 9)
 
     camera_fov_x = math.radians(camera_fov)
     camera_fov_y = math.radians(camera_fov / camera_ratio[0] * camera_ratio[1])
 
-    ball_right = ball_loc[..., 0] > pitch_size[0] / 2
+    ball_right = ball_xy[..., 0] > pitch_size[0] / 2
 
     # Camera-ball angle
-    ball_camera_dist = torch.norm(ball_loc - camera_loc, dim=-1)  # [bs, time]
+    ball_camera_dist = torch.norm(ball_xy - camera_xy, dim=-1)  # [bs, time]
     camera_ball_angle = math.pi / 2 - np.arctan(
-        abs(camera_loc[1] - ball_loc[..., 1]) / abs(camera_loc[0] - ball_loc[..., 0])
+        abs(camera_xy[1] - ball_xy[..., 1]) / abs(camera_xy[0] - ball_xy[..., 0])
     )
     camera_ball_angle_y = np.arctan(camera_height / ball_camera_dist)
 
@@ -577,21 +579,17 @@ def compute_polygon_loc(ball_loc, camera_info=(0, -20, 20, 30), pitch_size=(108,
     ball_camera_close_dist = ball_camera_dist * front_ratio
     ball_camera_far_dist = ball_camera_dist * rear_ratio
 
+    sign_y = (-1) ** ball_right
     ball_fov_close_dist_x = (ball_camera_close_dist * np.tan(camera_fov_x / 2)) * np.cos(camera_ball_angle)
-    ball_fov_close_dist_y = (
-        (-1) ** (ball_right) * (ball_camera_close_dist * np.tan(camera_fov_x / 2)) * np.sin(camera_ball_angle)
-    )
-
+    ball_fov_close_dist_y = sign_y * (ball_camera_close_dist * np.tan(camera_fov_x / 2)) * np.sin(camera_ball_angle)
     ball_fov_far_dist_x = (ball_camera_far_dist * np.tan(camera_fov_x / 2)) * np.cos(camera_ball_angle)
-    ball_fov_far_dist_y = (
-        (-1) ** (ball_right) * (ball_camera_far_dist * np.tan(camera_fov_x / 2)) * np.sin(camera_ball_angle)
-    )
+    ball_fov_far_dist_y = sign_y * (ball_camera_far_dist * np.tan(camera_fov_x / 2)) * np.sin(camera_ball_angle)
 
     front_ratio = front_ratio.unsqueeze(-1)
     rear_ratio = rear_ratio.unsqueeze(-1)
 
-    close_fov_center_point = ball_loc * (front_ratio) + camera_loc * (1 - front_ratio)
-    far_fov_center_point = ball_loc * rear_ratio + camera_loc * (-rear_ratio + 1)
+    close_fov_center_point = ball_xy * (front_ratio) + camera_xy * (1 - front_ratio)
+    far_fov_center_point = ball_xy * rear_ratio + camera_xy * (-rear_ratio + 1)
 
     poly_loc0 = (
         far_fov_center_point[..., 0] - ball_fov_far_dist_x,
@@ -609,9 +607,9 @@ def compute_polygon_loc(ball_loc, camera_info=(0, -20, 20, 30), pitch_size=(108,
         close_fov_center_point[..., 0] - ball_fov_close_dist_x,
         close_fov_center_point[..., 1] - ball_fov_close_dist_y,
     )
-    polygon_points = (poly_loc0, poly_loc1, poly_loc2, poly_loc3)
+    vertices = (poly_loc0, poly_loc1, poly_loc2, poly_loc3)
 
-    return polygon_points
+    return vertices
 
 
 def print_helper(ret, model_keys, trial=-1, dataset="soccer", save_txt=False):
