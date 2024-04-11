@@ -213,7 +213,7 @@ class NRTSIImputer(nn.Module):
 
         self.n_players = params["n_players"]  # Number of players per each team
 
-        if params["missing_pattern"] == "player_wise":
+        if params["missing_pattern"] == "playerwise":
             self.x_dim = params["n_features"]
             self.y_dim = params["n_features"]
         else:

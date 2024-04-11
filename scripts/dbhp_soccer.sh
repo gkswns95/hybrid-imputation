@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
 --trial 100 \
 --dataset soccer \
@@ -6,7 +6,7 @@ python train.py \
 --missing_pattern camera \
 --normalize \
 --flip_pitch \
---n_players 11 \
+--team_size 11 \
 --n_features 6 \
 --pe_z_dim 64 \
 --pi_z_dim 32 \
@@ -16,6 +16,7 @@ python train.py \
 --n_heads 4 \
 --dropout 0.0 \
 --physics_loss \
+--cartesian_accel \
 --fpe \
 --fpi \
 --train_hybrid \

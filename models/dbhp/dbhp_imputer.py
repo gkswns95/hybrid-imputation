@@ -123,11 +123,8 @@ class DBHPImputer(nn.Module):
 
         self.dataset = params["dataset"]
         self.n_features = params["n_features"]  # number of features per player
-        self.n_players = params["n_players"]  # number of agents per team
-        self.n_components = self.n_players  # total number of agents
-
-        if self.dataset in ["soccer", "basketball"]:
-            self.n_components *= 2
+        self.team_size = params["team_size"]  # number of players per team
+        self.n_players = self.team_size if self.dataset == "afootball" else self.team_size * 2
 
         self.pe_z_dim = params["pe_z_dim"]
         self.pi_z_dim = params["pi_z_dim"]
@@ -188,13 +185,13 @@ class DBHPImputer(nn.Module):
         self.out_fc = nn.Linear(out_fc_dim, self.n_features)
 
     def train_hybrid_pred(self, ret):
-        xy_pred = ret["xy_pred"].transpose(1, 2)  # [bs, time, comp, 2]
+        xy_pred = ret["pos_pred"].transpose(1, 2)  # [bs, time, comp, 2]
         physics_f_pred = ret["physics_f_pred"].transpose(1, 2)
         physics_b_pred = ret["physics_b_pred"].transpose(1, 2)
         vel_pred = ret["vel_pred"].transpose(1, 2)
         accel_pred = ret["cartesian_accel_pred"].transpose(1, 2)
-        xy_mask = ret["xy_mask"].transpose(1, 2)
-        xy_target = ret["xy_target"].transpose(1, 2)
+        xy_mask = ret["pos_mask"].transpose(1, 2)
+        xy_target = ret["pos_target"].transpose(1, 2)
 
         gamma_f = self.temp_decay(ret["deltas_f"].unsqueeze(-1))  # [bs, time, comp, 1]
         gamma_b = self.temp_decay(ret["deltas_b"].unsqueeze(-1))
@@ -218,10 +215,10 @@ class DBHPImputer(nn.Module):
         hybrid_pred = torch.sum(preds_ * hybrid_weights_, dim=2)  # [bs * comp, time, 2]
 
         final_out = xy_mask_ * xy_target_ + (1 - xy_mask_) * hybrid_pred  # [bs * comp, time, 2]
-        final_out_reshaped = final_out.reshape(self.bs, self.n_components, self.seq_len, -1)  # [bs, comp, time, 2]
+        final_out_reshaped = final_out.reshape(self.bs, self.n_players, self.seq_len, -1)  # [bs, comp, time, 2]
 
         hybrid_weights_reshaped = hybrid_weights.reshape(
-            self.bs, self.n_components, self.seq_len, -1
+            self.bs, self.n_players, self.seq_len, -1
         )  # [bs, comp, time, 3]
 
         return final_out_reshaped, hybrid_weights_reshaped
@@ -243,9 +240,9 @@ class DBHPImputer(nn.Module):
 
         self.seq_len, self.bs = input.shape[:2]
 
-        team1_x = input[..., : self.n_features * self.n_players].reshape(-1, self.n_players, self.n_features)
+        team1_x = input[..., : self.n_features * self.team_size].reshape(-1, self.team_size, self.n_features)
         if self.dataset in ["soccer", "basketball"]:
-            team2_x = input[..., self.n_features * self.n_players :].reshape(-1, self.n_players, self.n_features)
+            team2_x = input[..., self.n_features * self.team_size :].reshape(-1, self.team_size, self.n_features)
             self.x = torch.cat([team1_x, team2_x], 1)  # [time * bs, n_agents, n_features * 2]
         else:
             self.x = team1_x  # [time * bs, n_agents, n_features]
@@ -264,18 +261,16 @@ class DBHPImputer(nn.Module):
             rnn_input_list += [self.fpe_z]
         if self.params["fpi"]:
             self.fpi_z = (
-                self.fpi_st(self.x).unsqueeze(1).expand(-1, self.n_components, -1)
+                self.fpi_st(self.x).unsqueeze(1).expand(-1, self.n_players, -1)
             )  # [time * bs, n_agents, pi_z_dim]
             rnn_input_list += [self.fpi_z]
 
-        contexts = torch.cat(rnn_input_list, -1).reshape(self.seq_len, self.bs * self.n_components, -1)
+        contexts = torch.cat(rnn_input_list, -1).reshape(self.seq_len, self.bs * self.n_players, -1)
         rnn_input = self.in_fc(contexts)  # [time, bs * n_agents, rnn_dim]
 
         if self.params["train_hybrid"]:
-            context_embeds = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(
-                self.seq_len, self.bs * self.n_components, -1
-            )
-            self.hybrid_rnn_context = context_embeds.reshape(self.seq_len, self.bs, self.n_components, -1).transpose(
+            context_embeds = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(self.seq_len, self.bs * self.n_players, -1)
+            self.hybrid_rnn_context = context_embeds.reshape(self.seq_len, self.bs, self.n_players, -1).transpose(
                 0, 1
             )  # [time, bs * comp, -1]
 
@@ -304,7 +299,7 @@ class DBHPImputer(nn.Module):
             mask_ = reshape_tensor(mask, dataset=self.dataset)
             total_loss += torch.abs((pred_ - target_) * (1 - mask_)).sum() / (1 - mask_).sum()
         else:  # e.g. n_features == 6
-            feature_types = ["xy", "vel", "cartesian_accel"]
+            feature_types = ["pos", "vel", "cartesian_accel"]
 
             for mode in feature_types:
                 pred_ = reshape_tensor(pred, mode=mode, dataset=self.dataset).transpose(1, 2)  # [bs, comp, time, 2]
@@ -319,14 +314,14 @@ class DBHPImputer(nn.Module):
 
                 loss = torch.abs((pred_ - target_) * (1 - mask_)).sum() / (1 - mask_).sum()
 
-                if mode in ["xy"]:
+                if mode in ["pos"]:
                     ret[f"{mode}_loss"] = loss
                     total_loss += loss
                 else:
                     ret[f"{mode}_loss"] = loss
                     total_loss += loss
 
-                if mode in ["xy", "vel", "accel", "cartesian_accel"]:
+                if mode in ["pos", "vel", "accel", "cartesian_accel"]:
                     ret[f"{mode}_pred"] = pred_
                     ret[f"{mode}_target"] = target_
                     ret[f"{mode}_mask"] = mask_
@@ -338,18 +333,16 @@ class DBHPImputer(nn.Module):
 
             if self.params["physics_loss"]:
                 mode = "accel" if self.params["cartesian_accel"] else "vel"
-                ret["physics_f_pred"] = derivative_based_pred(
-                    ret, physics_mode=mode, fb="f", dataset=self.dataset
-                )  # [bs, n_agents, time, 2] (STRNN-DAP-F)
-                ret["physics_b_pred"] = derivative_based_pred(
-                    ret, physics_mode=mode, fb="b", dataset=self.dataset
-                )  # (STRNN-DAP-B)
+
+                # DAP-F and DAP-B with output sizes [bs, n_agents, time, 2]
+                ret["physics_f_pred"] = derivative_based_pred(ret, physics_mode=mode, fb="f", dataset=self.dataset)
+                ret["physics_b_pred"] = derivative_based_pred(ret, physics_mode=mode, fb="b", dataset=self.dataset)
 
                 ret["physics_f_loss"] = (
-                    torch.abs(ret["xy_target"] - ret["physics_f_pred"]).sum() / (1 - ret["xy_mask"]).sum()
+                    torch.abs(ret["pos_target"] - ret["physics_f_pred"]).sum() / (1 - ret["pos_mask"]).sum()
                 )
                 ret["physics_b_loss"] = (
-                    torch.abs(ret["xy_target"] - ret["physics_b_pred"]).sum() / (1 - ret["xy_mask"]).sum()
+                    torch.abs(ret["pos_target"] - ret["physics_b_pred"]).sum() / (1 - ret["pos_mask"]).sum()
                 )
 
                 total_loss += ret["physics_f_loss"] + ret["physics_b_loss"]
@@ -359,16 +352,16 @@ class DBHPImputer(nn.Module):
                     ret["train_hybrid_pred"] = hybrid_o  # [bs, n_agents, time, 2] (STRNN-DBHP-D)
                     ret["train_hybrid_weights"] = hybrid_w  # [bs, n_agents, time, 3]
                     ret["train_hybrid_loss"] = (
-                        torch.abs((ret["train_hybrid_pred"] - ret["xy_target"]) * (1 - ret["xy_mask"])).sum()
-                        / (1 - ret["xy_mask"]).sum()
+                        torch.abs((ret["train_hybrid_pred"] - ret["pos_target"]) * (1 - ret["pos_mask"])).sum()
+                        / (1 - ret["pos_mask"]).sum()
                     )
                     total_loss += ret["train_hybrid_loss"]
 
                 if self.params["coherence_loss"]:
-                    p_d = ret["xy_pred"]  # [bs, time, n_agents, 2]
+                    p_d = ret["pos_pred"]  # [bs, time, n_agents, 2]
                     v_d = ret["vel_pred"]
                     a_d = ret["cartesian_accel_pred"]
-                    m = ret["xy_mask"][..., 0].unsqueeze(-1)  # [bs, time, n_agents, 1]
+                    m = ret["pos_mask"][..., 0].unsqueeze(-1)  # [bs, time, n_agents, 1]
                     ret["coherence_loss"] = calc_coherence_loss(p_d, v_d, a_d, m, add_va=True)
                     total_loss += ret["coherence_loss"]
 

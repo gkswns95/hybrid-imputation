@@ -36,4 +36,4 @@ python train.py \
 --normalize \
 --flip_pitch \
 --missing_prob_float 0.6 \
---m_pattern, camera_simulate
+--m_pattern camera

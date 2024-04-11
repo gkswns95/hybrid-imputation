@@ -127,9 +127,9 @@ class NRTSI(nn.Module):
                         scale_factor = 10
 
                     if self.params["cartesian_accel"]:
-                        feature_types = ["xy", "vel", "cartesian_accel"]
+                        feature_types = ["pos", "vel", "cartesian_accel"]
                     else:
-                        feature_types = ["xy", "vel", "speed", "accel"]
+                        feature_types = ["pos", "vel", "speed", "accel"]
 
                     for mode in feature_types:
                         if self.params["stochastic"]:
@@ -138,7 +138,7 @@ class NRTSI(nn.Module):
                             gt_data_ = reshape_tensor(gt_data, mode=mode, dataset=dataset)
 
                             # sampling
-                            if mode == "xy":
+                            if mode == "pos":
                                 sampled_postion = sample_gauss(
                                     pred_mean_, pred_std_, gt_data_, gap=gap
                                 )  # [bs, n_imp, players, 2]
@@ -153,7 +153,7 @@ class NRTSI(nn.Module):
                         if mode in ["accel", "speed"]:
                             ret[f"{mode}_loss"] = loss * 0
                             total_loss += loss * 0
-                        elif mode in ["xy"]:
+                        elif mode in ["pos"]:
                             ret[f"{mode}_loss"] = loss * scale_factor
                             total_loss += loss
                         else:

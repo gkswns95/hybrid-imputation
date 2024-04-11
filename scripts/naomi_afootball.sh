@@ -4,7 +4,7 @@ python train.py \
 --dataset football \
 --model naomi \
 --target_type imputation \
---missing_pattern all_player \
+--missing_pattern uniform \
 --n_players 6 \
 --n_features 2 \
 --train_nfl \

@@ -16,9 +16,9 @@ def derivative_based_pred(ret, physics_mode="vel", fb="f", dataset="soccer"):
     if dataset == "football":
         ps = (1, 1)
 
-    scale_tensor = torch.FloatTensor(ps).to(ret["xy_pred"].device)
-    m = ret["xy_mask"].flatten(0, 1)  # [bs * n_agents, time, 2]
-    pxy_d = ret["xy_pred"].flatten(0, 1) * scale_tensor
+    scale_tensor = torch.FloatTensor(ps).to(ret["pos_pred"].device)
+    m = ret["pos_mask"].flatten(0, 1)  # [bs * n_agents, time, 2]
+    pxy_d = ret["pos_pred"].flatten(0, 1) * scale_tensor
     vxy_d = ret["vel_pred"].flatten(0, 1)
 
     if physics_mode == "vel":
@@ -67,7 +67,7 @@ def calc_static_hybrid_pred2(ret):  # Mixing DAP-F and DAP-B
     deltas_f = deltas_f.transpose(1, 2).flatten(0, 1).unsqueeze(-1)  # [bs * agents, time, 1]
     deltas_b = deltas_b.transpose(1, 2).flatten(0, 1).unsqueeze(-1)
 
-    masks = ret["xy_mask"].flatten(0, 1)[..., 0:1]  # [bs * n_agents, time, 1]
+    masks = ret["pos_mask"].flatten(0, 1)[..., 0:1]  # [bs * n_agents, time, 1]
 
     t = torch.arange(masks.shape[1]).reshape(1, -1, 1).tile((masks.shape[0], 1, 1)).to(masks.device)
     t0 = t - deltas_f
@@ -80,7 +80,7 @@ def calc_static_hybrid_pred2(ret):  # Mixing DAP-F and DAP-B
     # print(torch.cat([t, masks_, t0, m, t1, wf, (1 - masks_) * wb], dim=-1)[1, :20])
 
     bs, seq_len, _ = ret["physics_f_pred"].shape
-    xy_pred = ret["xy_pred"].transpose(1, 2).flatten(0, 1)  # [bs * agents, time, 2]
+    xy_pred = ret["pos_pred"].transpose(1, 2).flatten(0, 1)  # [bs * agents, time, 2]
     pred_f = ret["physics_f_pred"].reshape(bs, seq_len, -1, 2).transpose(1, 2).flatten(0, 1)
     pred_b = ret["physics_b_pred"].reshape(bs, seq_len, -1, 2).transpose(1, 2).flatten(0, 1)
 
@@ -95,7 +95,7 @@ def calc_static_hybrid_pred(ret):  # Mixing DP, DAP-F, and DAP-B
     deltas_f = deltas_f.transpose(1, 2).flatten(0, 1).unsqueeze(-1)  # [bs * agents, time, 1]
     deltas_b = deltas_b.transpose(1, 2).flatten(0, 1).unsqueeze(-1)
 
-    masks = ret["xy_mask"].flatten(0, 1)[..., 0:1]  # [bs * n_agents, time, 1]
+    masks = ret["pos_mask"].flatten(0, 1)[..., 0:1]  # [bs * n_agents, time, 1]
 
     t = torch.arange(masks.shape[1]).reshape(1, -1, 1).tile((masks.shape[0], 1, 1)).to(masks.device)
     t0 = t - deltas_f
@@ -113,7 +113,7 @@ def calc_static_hybrid_pred(ret):  # Mixing DP, DAP-F, and DAP-B
     # print(torch.cat([t, masks_, wd, wf, (1 - masks_) * wb], dim=-1)[1, :20])
 
     bs, seq_len, _ = ret["physics_f_pred"].shape
-    xy_pred = ret["xy_pred"].flatten(0, 1)  # [bs * agents, time, 2]
+    xy_pred = ret["pos_pred"].flatten(0, 1)  # [bs * agents, time, 2]
     pred_f = ret["physics_f_pred"].reshape(bs, seq_len, -1, 2).transpose(1, 2).flatten(0, 1)
     pred_b = ret["physics_b_pred"].reshape(bs, seq_len, -1, 2).transpose(1, 2).flatten(0, 1)
 

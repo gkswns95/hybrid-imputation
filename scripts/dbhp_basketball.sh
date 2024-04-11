@@ -3,7 +3,7 @@ python train.py \
 --dataset basketball \
 --model dbhp \
 --target_type imputation \
---missing_pattern all_player \
+--missing_pattern uniform \
 --n_players 5 \
 --n_features 6 \
 --train_nba \

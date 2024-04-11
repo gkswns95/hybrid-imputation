@@ -36,4 +36,4 @@ python train.py \
 --cuda \
 --flip_pitch \
 --missing_prob_float 0.6 \
---m_pattern player_wise
+--m_pattern playerwise

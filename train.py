@@ -63,7 +63,7 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
     pred_keys = ["pred"]
     if model.module.params["model"] == "dbhp":
         if model.module.params["n_features"] == 6:
-            loss_keys += ["xy", "vel", "accel"]
+            loss_keys += ["pos", "vel", "accel"]
         if model.module.params["physics_loss"]:
             pred_keys += ["physics_f", "physics_b"]
             if model.module.params["train_hybrid"]:
@@ -130,7 +130,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-t", "--trial", type=int, required=True)
 parser.add_argument("--dataset", type=str, required=True, default="soccer", help="soccer, basketball, afootball")
 parser.add_argument("--model", type=str, required=True, default="dbhp")
-parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, indep, camera")
+parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, playerwise, camera")
 parser.add_argument("--n_features", type=int, required=False, default=2, help="num features")
 parser.add_argument("--normalize", action="store_true", default=False, help="normalize data")
 parser.add_argument("--flip_pitch", action="store_true", default=False, help="augment data by flipping the pitch")

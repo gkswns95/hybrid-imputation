@@ -3,7 +3,7 @@ python train.py \
 --dataset football \
 --model brits \
 --target_type imputation \
---missing_pattern player_wise \
+--missing_pattern playerwise \
 --n_players 6 \
 --n_features 2 \
 --train_nfl \

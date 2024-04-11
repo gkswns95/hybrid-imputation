@@ -3,7 +3,7 @@ python train.py \
 --dataset football \
 --model dbhp \
 --target_type imputation \
---missing_pattern player_wise \
+--missing_pattern playerwise \
 --n_players 6 \
 --n_features 6 \
 --train_nfl \

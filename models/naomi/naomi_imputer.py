@@ -233,16 +233,16 @@ class NAOMIImputer(nn.Module):
         loss = 0.0
 
         if self.n_features == 2:
-            feature_types = ["xy"]
+            feature_types = ["pos"]
             scale_factor = 1
         elif self.n_features == 4:
-            feature_types = ["xy", "vel"]
+            feature_types = ["pos", "vel"]
             scale_factor = 10
         elif self.n_features == 6:
             if self.params["cartesian_accel"]:
-                feature_types = ["xy", "vel", "cartesian_accel"]
+                feature_types = ["pos", "vel", "cartesian_accel"]
             else:
-                feature_types = ["xy", "vel", "speed", "accel"]
+                feature_types = ["pos", "vel", "speed", "accel"]
             scale_factor = 10
 
         for mode in feature_types:
@@ -253,7 +253,7 @@ class NAOMIImputer(nn.Module):
 
             if mode in ["accel", "speed"]:
                 loss += mae_loss * 0
-            elif mode in ["xy"]:
+            elif mode in ["pos"]:
                 loss += mae_loss * scale_factor
             else:
                 loss += mae_loss

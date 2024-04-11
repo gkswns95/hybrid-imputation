@@ -111,9 +111,14 @@ def generate_mask(
 ) -> np.ndarray:
     assert mode in ["uniform", "playerwise", "camera"]
 
-    player_data = data_dict["target"]  # [bs, time, players * feats]
-    valid_lens = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs], length without padding
     n_players, _ = get_dataset_config(sports)
+    player_data = data_dict["target"]  # [bs, time, players * feats]
+
+    # compute the length of each sequence without padding
+    if player_data.is_cuda:
+        valid_lens = np.array(player_data.cpu()[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
+    else:
+        valid_lens = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
 
     if mode == "uniform":  # assert the first and the last frames are not missing
         if sports == "afootball":
@@ -162,12 +167,15 @@ def generate_mask(
         player_xy = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
         ball_xy = normalize_tensor(ball_data, mode="upscale", dataset=sports)
 
+        if player_data.is_cuda:
+            is_pad = np.array(player_data.cpu()[..., :1] == -100).astype(int)
+        else:
+            is_pad = np.array(player_data[..., :1] == -100).astype(int)
+
         # check whether the camera view covers each player's position or not
         # is_inside = 1 for on-screen players and 0 for off-screen players
         camera_vertices = compute_camera_coverage(ball_xy)
         mask = is_inside(camera_vertices, player_xy)  # [bs, time, players]
-
-        is_pad = np.array(player_data[..., :1] == -100).astype(int)
         mask = (1 - is_pad) * mask + is_pad
 
         mask[:, :5, :] = 1

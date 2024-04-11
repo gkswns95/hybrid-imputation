@@ -3,7 +3,7 @@ python train.py \
 --dataset soccer \
 --model brits \
 --target_type imputation \
---missing_pattern camera_simulate \
+--missing_pattern camera \
 --n_players 11 \
 --n_features 2 \
 --train_metrica \
