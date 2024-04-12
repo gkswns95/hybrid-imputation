@@ -63,7 +63,7 @@ class DBHP(nn.Module):
             data=ret,
             sports=self.params["dataset"],
             mode=self.params["missing_pattern"],
-            missing_rate=random.randint(1, 9) * 0.1,
+            missing_rate=self.params["missing_rate"],
         )  # [bs, time, players]
         deltas_f, deltas_b = compute_deltas(mask)  # [bs, time, players]
 

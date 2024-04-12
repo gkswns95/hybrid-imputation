@@ -139,8 +139,9 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("-t", "--trial", type=int, required=True)
 parser.add_argument("--dataset", type=str, required=True, default="soccer", help="soccer, basketball, afootball")
-parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, playerwise, camera")
 parser.add_argument("--model", type=str, required=True, default="dbhp")
+parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, playerwise, camera")
+parser.add_argument("--missing_rate", type=float, required=False, default=0.5, help="proportion of missing frames")
 parser.add_argument("--n_features", type=int, required=False, default=2, help="num features")
 parser.add_argument("--window_size", type=int, required=False, default=200, help="for SportsDataset")
 parser.add_argument("--window_stride", type=int, required=False, default=5, help="for SportsDataset")
@@ -170,9 +171,10 @@ if __name__ == "__main__":
     # Parameters to save
     params = {
         "trial": args.trial,
-        "missing_pattern": args.missing_pattern,
         "dataset": args.dataset,
         "model": args.model,
+        "missing_pattern": args.missing_pattern,
+        "missing_rate": args.missing_rate,
         "n_features": args.n_features,
         "window_size": args.window_size,
         "window_stride": args.window_stride,
@@ -228,15 +230,16 @@ if __name__ == "__main__":
         print("{}/model/{}_state_dict_best.pt".format(save_path, args.model))
         model.module.load_state_dict(state_dict)
     else:
-        title = f"{args.trial} {args.dataset} {args.missing_pattern} {args.model}"
+        title = f"{args.trial} {args.dataset} {args.model} {args.missing_pattern}"
+        if args.missing_pattern != "camera":
+            title += f" {args.missing_rate}"
         print_keys = ["n_features", "window_size", "window_stride", "flip_pitch", "start_lr"]
-
         printlog(title)
         printlog(model.module.params_str)
         printlog(get_params_str(print_keys, model.module.params))
         printlog("n_params {:,}".format(params["total_params"]))
-    printlog("############################################################")
 
+    printlog("############################################################")
     print()
     print("Generating datasets...")
 
@@ -303,6 +306,7 @@ if __name__ == "__main__":
 
     # Train loop
     best_valid_loss = args.best_loss
+    best_valid_dist = 100
 
     epochs_since_best = 0
     lr = max(args.start_lr, args.min_lr)
@@ -325,7 +329,7 @@ if __name__ == "__main__":
 
         # Set a custom learning rate schedule
         if args.model != "nrtsi":
-            if epochs_since_best == 2 and lr > args.min_lr:
+            if epochs_since_best == 3 and lr > args.min_lr:
                 # Load previous best model
                 path = "{}/model/{}_state_dict_best.pt".format(save_path, args.model)
                 if args.model == "nrtsi":
@@ -335,11 +339,12 @@ if __name__ == "__main__":
                     path = "{}/model/{}_state_dict_best_pretrain.pt".format(save_path, args.model)
                     if args.model == "nrtsi":
                         path = "{}/model/{}_state_dict_best_gap_{}.pt".format(save_path, args.model, train_args[1])
+
                 state_dict = torch.load(path)
 
                 # Decrease learning rate
                 lr = max(lr / 2, args.min_lr)
-                printlog("########## lr {} ##########".format(lr))
+                printlog("########## LR {} ##########".format(lr))
                 epochs_since_best = 0
             else:
                 epochs_since_best += 1
@@ -364,19 +369,32 @@ if __name__ == "__main__":
         epoch_time = time.time() - start_time
         printlog("Time:\t{:.2f}s".format(epoch_time))
 
-        valid_loss = sum([value for key, value in valid_losses.items() if key.endswith("loss")])
+        # valid_loss = sum([value for key, value in valid_losses.items() if key.endswith("loss")])
+        valid_loss = valid_losses["total_loss"]
+        if args.model == "dbhp" and model.module.params["dynamic_hybrid"]:
+            valid_dist = valid_losses["hybrid_d_dist"]
+        elif args.model == "dbhp" and model.module.params["deriv_accum"]:
+            valid_dist = np.mean(valid_losses["dap_f_dist"], valid_losses["dap_b_dist"])
+        else:
+            valid_dist = valid_losses["pred_dist"]
+
         # Best model on test set
         if args.model != "nrtsi":
             if best_valid_loss == 0 or valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
                 epochs_since_best = 0
-
                 path = "{}/model/{}_state_dict_best.pt".format(save_path, args.model)
                 if epoch <= pretrain_time:
                     path = "{}/model/{}_state_dict_best_pretrain.pt".format(save_path, args.model)
-
                 torch.save(model.module.state_dict(), path)
                 printlog("########## Best Model ###########")
+
+            if valid_dist < best_valid_dist:
+                best_valid_dist = valid_dist
+                epochs_since_best = 0
+                path = "{}/model/{}_state_dict_best_dist.pt".format(save_path, args.model)
+                torch.save(model.module.state_dict(), path)
+                printlog("########## Best Dist. ###########")
 
             # Periodically save model
             if epoch % save_every == 0:
@@ -403,7 +421,6 @@ if __name__ == "__main__":
 
             if best_valid_loss == 0 or valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-
                 path = "{}/model/{}_state_dict_best_gap_{}.pt".format(save_path, args.model, train_args[1])
                 torch.save(model.module.state_dict(), path)
                 printlog(f"########## Best Model (max_gap : {train_args[1]}) ###########")

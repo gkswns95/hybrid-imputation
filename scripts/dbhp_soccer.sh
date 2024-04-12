@@ -1,13 +1,16 @@
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=6 \
 python train.py \
---trial 101 \
+--trial 200 \
 --dataset soccer \
---missing_pattern camera \
 --model dbhp \
+--missing_pattern playerwise \
+--missing_rate 0.5 \
 --normalize \
 --flip_pitch \
 --team_size 11 \
 --n_features 6 \
+--window_size 200 \
+--window_stride 5 \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
@@ -23,7 +26,7 @@ python train.py \
 --pe_z_dim 16 \
 --pi_z_dim 16 \
 --rnn_dim 256 \
---hybrid_rnn_dim 64 \
+--hybrid_rnn_dim 128 \
 --n_layers 2 \
 --n_heads 4 \
 --dropout 0.0 \
