@@ -150,8 +150,12 @@ def generate_mask(
 
         residue = (valid_frames * n_players * missing_rate).astype(int)  # [bs]
         # total remaining number of missing values (will decrease during the while-loops)
-        max_shares = np.tile(valid_frames - 10, (n_players, 1)).T  # [bs, players]
-        assert np.all(residue < max_shares.sum(axis=-1))
+
+        max_shares = np.maximum(valid_frames - 10, np.min(valid_frames) * 0.9).round().astype(int)
+        max_shares = np.tile(max_shares, (n_players, 1)).T  # [bs, players]
+        # maximum number of missing values for each player
+
+        assert np.all(residue <= max_shares.sum(axis=-1))
 
         for i in range(mask.shape[0]):
             while residue[i] > 0:  # iteratively distribute residue to the players with available slots
@@ -172,8 +176,8 @@ def generate_mask(
 
     elif mode == "camera":  # assert the first and the last five frames are not missing
         player_data, ball_data = data["target"].clone().cpu(), data["ball"].clone().cpu()
-        player_pos = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
-        ball_pos = normalize_tensor(ball_data, mode="upscale", dataset=sports)
+        player_pos = reshape_tensor(player_data, upscale=True, dataset_type=sports)  # [bs, time, players, 2]
+        ball_pos = normalize_tensor(ball_data, mode="upscale", dataset_type=sports)
 
         if player_data.is_cuda:
             is_pad = np.array(player_data.cpu()[..., :1] == -100).astype(int)
@@ -246,37 +250,37 @@ def random_permutation(input: torch.Tensor, players=6, permutations=None) -> tor
 
 # def xy_sort_tensor(tensor, n_players=22):
 #     '''
-#     - tensor : [bs, seq_len, feat_dim]
+#     - tensor : [bs, time, feat_dim]
 #     '''
 #     bs, seq_len = tensor.shape[:2]
-#     tensor_ = tensor.reshape(bs, seq_len, n_players, -1) # [bs, seq_len, players, x_dim]
+#     tensor_ = tensor.reshape(bs, seq_len, n_players, -1) # [bs, time, players, x_dim]
 
-#     x_tensor = tensor_[..., 0].unsqueeze(-1) # [bs, seq_len, players, 1]
+#     x_tensor = tensor_[..., 0].unsqueeze(-1) # [bs, time, players, 1]
 #     y_tensor = tensor_[..., 1].unsqueeze(-1)
-#     xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1) # [bs, seq_len, players, 2]
-#     xy_sum_tensor = torch.sum(xy_tensor, dim=-1) # [bs, seq_len, players]
+#     xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1) # [bs, time, players, 2]
+#     xy_sum_tensor = torch.sum(xy_tensor, dim=-1) # [bs, time, players]
 
 #     sorted_tensor = tensor_.clone()
 #     for batch in range(bs):
 #         sort_indices = torch.argsort(xy_sum_tensor[batch, 0], dim=0) # [players]
 #         sorted_tensor[batch] = tensor_[batch, :, sort_indices]
 
-#     return sorted_tensor.flatten(2,3) # [bs, seq_len, feat_dim]
+#     return sorted_tensor.flatten(2,3) # [bs, time, feat_dim]
 
 
 def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mode="sort"):
     """
-    - tensor : [bs, seq_len, feat_dim]
+    - tensor : [bs, time, feats]
     """
     bs, seq_len = tensor.shape[:2]
-    tensor_ = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, seq_len, players, x_dim]
+    tensor_ = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, time, players, x_dim]
 
-    x_tensor = tensor_[..., 0].unsqueeze(-1)  # [bs, seq_len, players, 1]
+    x_tensor = tensor_[..., 0].unsqueeze(-1)  # [bs, time, players, 1]
     y_tensor = tensor_[..., 1].unsqueeze(-1)
 
-    xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1)  # [bs, seq_len, players, 2]
+    xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1)  # [bs, time, players, 2]
     if mode == "sort":
-        xy_sum_tensor = torch.sum(xy_tensor, dim=-1)  # [bs, seq_len, players]
+        xy_sum_tensor = torch.sum(xy_tensor, dim=-1)  # [bs, time, players]
 
         sorted_tensor = tensor_.clone()
         sort_idxs_tensor = torch.zeros(bs, n_players, dtype=int)
@@ -286,16 +290,16 @@ def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mo
             sorted_tensor[batch] = tensor_[batch, :, sorted_idxs]
             sort_idxs_tensor[batch] = sorted_idxs
 
-        return sorted_tensor.flatten(2, 3), sort_idxs_tensor  # [bs, seq_len, feat_dim]
+        return sorted_tensor.flatten(2, 3), sort_idxs_tensor  # [bs, time, feat_dim]
     else:  # Restore sorted tensor
         assert sort_idxs_tensor is not None
 
-        restored_tensor = tensor_.clone()  # [bs, seq_len, players, x_dim]
+        restored_tensor = tensor_.clone()  # [bs, time, players, x_dim]
         for batch in range(bs):
             restore_indices = torch.argsort(sort_idxs_tensor[batch])
             restored_tensor[batch] = tensor_[batch, :, restore_indices, :]
 
-        return restored_tensor.flatten(2, 3)  # [bs, seq_len, feat_dim]
+        return restored_tensor.flatten(2, 3)  # [bs, time, feat_dim]
 
 
 def num_trainable_params(model):
@@ -348,27 +352,6 @@ def calc_coherence_loss(p: torch.Tensor, v: torch.Tensor, a: torch.Tensor, m: to
         return torch.mean(pv_loss / ((1 - m).sum(dim=1).squeeze(-1) + 1e-5))
 
 
-def calc_trace_dist(
-    pred_tensor: torch.Tensor,
-    target_tensor: torch.Tensor,
-    mask_tensor: torch.Tensor,
-    n_features=None,
-    rescale=True,
-    aggfunc="mean",
-    dataset="soccer",
-) -> torch.Tensor:
-    pred_xy = reshape_tensor(pred_tensor, rescale=rescale, n_features=n_features, dataset=dataset)
-    target_xy = reshape_tensor(target_tensor, rescale=rescale, n_features=n_features, dataset=dataset)
-    mask_xy = reshape_tensor(mask_tensor, n_features=n_features, dataset=dataset)
-
-    if aggfunc == "mean":
-        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum() / ((1 - mask_xy).sum() / 2)
-    elif aggfunc == "tensor":
-        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1)
-    else:  # if aggfunc == "sum"
-        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum()
-
-
 def calc_class_acc(pred_poss, target_poss, aggfunc="mean"):
     if aggfunc == "mean":
         return (torch.argmax(pred_poss, dim=1) == target_poss).float().mean().item()
@@ -389,123 +372,170 @@ def calc_auc_score(target, pred):
     return auc(fpr, tpr)
 
 
-def step_changes_path_len_err(pred_traces, target_traces, mask, dataset="soccer"):
+def calc_pos_error(
+    pred_tensor: torch.Tensor,
+    target_tensor: torch.Tensor,
+    mask_tensor: torch.Tensor,
+    n_features=None,
+    aggfunc="mean",
+    dataset="soccer",
+    reshape=True,
+    upscale=True,
+) -> torch.Tensor:
     """
-    pred_traces : [time, players * 2]
-    target_traces : [time, players * 2]
-    mask : [time, players * 2]
+    pred_traces: [time, players * _] if reshape else [time, players, 2]
+    target_traces: [time, players * _] if reshape else [time, players, 2]
+    mask: [time, players * _] if reshape else [time, players, 2]
     """
-    pred_traces = reshape_tensor(pred_traces, dataset=dataset)  # [time, players, 2]
-    target_traces = reshape_tensor(target_traces, dataset=dataset)
-    mask = reshape_tensor(mask, dataset=dataset)
+    if reshape:
+        pred_xy = reshape_tensor(pred_tensor, upscale=upscale, n_features=n_features, dataset_type=dataset)
+        target_xy = reshape_tensor(target_tensor, upscale=upscale, n_features=n_features, dataset_type=dataset)
+        mask_xy = reshape_tensor(mask_tensor, n_features=n_features, dataset_type=dataset)
+    else:
+        pred_xy = pred_tensor[..., :2]
+        target_xy = target_tensor[..., :2]
+        mask_xy = mask_tensor[..., :2]
 
-    pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset=dataset)
-    target_traces = normalize_tensor(target_traces, mode="upscale", dataset=dataset)
-
-    pred_traces = mask * target_traces + (1 - mask) * pred_traces
-
-    step_size = torch.norm(pred_traces[1:] - pred_traces[:-1], dim=-1)  # [time, players]
-    pred_sc = step_size.std(0)  # [players]
-
-    pred_path_length = step_size.sum(0)
-
-    step_size = torch.norm(target_traces[1:] - target_traces[:-1], dim=-1)  # [time, players]
-    target_sc = step_size.std(0)  # [players]
-    target_path_length = step_size.sum(0)
-
-    sc_error = torch.abs(pred_sc - target_sc).sum().item()
-    path_len_err = torch.abs(pred_path_length - target_path_length).sum().item()
-
-    return sc_error, path_len_err
+    if aggfunc == "mean":
+        return (torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum() / ((1 - mask_xy).sum() / 2)).item()
+    elif aggfunc == "tensor":
+        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1)
+    else:  # if aggfunc == "sum"
+        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum().item()
 
 
-def calc_speed_err(pred_traces, target_traces, mask, dataset="soccer"):
+def calc_speed_error(pred_traces, target_traces, mask, dataset_type="soccer", upscale=False):
     """
-    pred_traces : [time, players * 2]
-    target_traces : [time, players * 2]
-    mask : [time, players * 2]
+    pred_traces: [time, players, 2]
+    target_traces: [time, players, 2]
+    mask: [time, players, 2]
     """
-    pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset=dataset)
-    target_traces = normalize_tensor(target_traces, mode="upscale", dataset=dataset)
+    if upscale:
+        pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset_type=dataset_type)
+        target_traces = normalize_tensor(target_traces, mode="upscale", dataset_type=dataset_type)
 
     pred_traces = mask * target_traces + (1 - mask) * pred_traces
 
     vx_diff = torch.diff(pred_traces[..., 0::2], dim=0) / 0.1
     vy_diff = torch.diff(pred_traces[..., 1::2], dim=0) / 0.1
-    pred_speed = torch.sqrt(vx_diff**2 + vy_diff**2)
+    pred_speed = torch.sqrt(vx_diff**2 + vy_diff**2)  # [time - 1, players]
 
     vx_diff = torch.diff(target_traces[..., 0::2], dim=0) / 0.1
     vy_diff = torch.diff(target_traces[..., 1::2], dim=0) / 0.1
-    target_speed = torch.sqrt(vx_diff**2 + vy_diff**2)
+    target_speed = torch.sqrt(vx_diff**2 + vy_diff**2)  # [time - 1, players]
 
-    speed_err = torch.abs(pred_speed - target_speed).sum().item()
-
-    return speed_err
+    return torch.abs(pred_speed - target_speed).sum().item()
 
 
-def calc_statistic_metrics(pred_traces, target_traces, mask, ret, imputer, dataset="soccer"):
+def calc_step_change_and_path_length_errors(
+    pred_traces: torch.Tensor,
+    target_traces: torch.Tensor,
+    mask: torch.Tensor,
+    dataset_type="soccer",
+    reshape=False,
+    upscale=False,
+) -> Tuple[float, float]:
     """
-    pred_traces : [time, x_dim(players * n_features)]
-    target_traces : [time, x_dim]
-    mask : [time, x_dim]
+    pred_traces: [time, players * 2] if reshape else [time, players, 2]
+    target_traces: [time, players * 2] if reshape else [time, players, 2]
+    mask: [time, players * 2] if reshape else [time, players, 2]
     """
-    pred_traces_ = reshape_tensor(pred_traces, dataset=dataset).reshape(pred_traces.shape[0], -1)
-    target_traces_ = reshape_tensor(target_traces, dataset=dataset).reshape(pred_traces.shape[0], -1)
-    mask_ = reshape_tensor(mask, dataset=dataset).reshape(pred_traces.shape[0], -1)
+    if reshape:
+        pred_traces = reshape_tensor(pred_traces, dataset_type=dataset_type)  # [time, players, 2]
+        target_traces = reshape_tensor(target_traces, dataset_type=dataset_type)
+        mask = reshape_tensor(mask, dataset_type=dataset_type)
 
-    masked_traces = pd.DataFrame(pred_traces_ * mask_).replace(0, np.NaN)
-    if imputer == "linear":
-        interp = torch.tensor(masked_traces.copy(deep=True).interpolate().values)
-    elif imputer == "knn":
-        interp = torch.tensor(
-            KNNImputer(n_neighbors=5, weights="distance").fit_transform(masked_traces.copy(deep=True))
-        )
-    elif imputer == "forward":
-        interp = torch.tensor(masked_traces.copy(deep=True).ffill(axis=0).bfill(axis=0).values)
-    elif imputer in ["target", "pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
-        interp = pred_traces_
+    if upscale:
+        pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset_type=dataset_type)
+        target_traces = normalize_tensor(target_traces, mode="upscale", dataset_type=dataset_type)
 
-    if imputer not in ["pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
-        ret[f"{imputer}_dist"] = calc_trace_dist(interp, target_traces_, mask_, aggfunc="sum", dataset=dataset)
-        ret[f"{imputer}_pred"] = interp.clone()
+    pred_traces = mask * target_traces + (1 - mask) * pred_traces
 
-    speed_err = calc_speed_err(interp.clone(), target_traces_, mask_, dataset)
-    total_sc, path_length = step_changes_path_len_err(interp, target_traces_, mask_, dataset)
+    step_size = torch.norm(pred_traces[1:] - pred_traces[:-1], dim=-1)  # [time, players]
+    pred_sc = step_size.std(0)  # [players]
+    pred_pl = step_size.sum(0)
 
-    ret[f"{imputer}_speed"] = speed_err
-    ret[f"{imputer}_step_change"] = total_sc
-    ret[f"{imputer}_path_length"] = path_length
+    step_size = torch.norm(target_traces[1:] - target_traces[:-1], dim=-1)  # [time, players]
+    target_sc = step_size.std(0)  # [players]
+    target_pl = step_size.sum(0)
 
-    return ret
+    sc_error = torch.abs(pred_sc - target_sc).sum().item()
+    pl_error = torch.abs(pred_pl - target_pl).sum().item()
+
+    return sc_error, pl_error
 
 
-def reshape_tensor(tensor: torch.Tensor, rescale=False, n_features=None, mode="pos", dataset="soccer") -> torch.Tensor:
-    players, ps = get_dataset_config(dataset)
+def calc_pred_errors(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, dataset_type="soccer"):
+    # pred_traces_ = reshape_tensor(pred_traces, dataset=dataset).reshape(pred_traces.shape[0], -1)
+    # target_traces_ = reshape_tensor(target_traces, dataset=dataset).reshape(pred_traces.shape[0], -1)
+    # mask_ = reshape_tensor(mask, dataset=dataset).reshape(pred_traces.shape[0], -1)
+
+    # masked_traces = pd.DataFrame(pred_traces_ * mask_).replace(0, np.NaN)
+    # if pred_type == "linear":
+    #     interp = torch.tensor(masked_traces.copy(deep=True).interpolate().values)
+    # elif pred_type == "knn":
+    #     interp = torch.tensor(
+    #         KNNImputer(n_neighbors=5, weights="distance").fit_transform(masked_traces.copy(deep=True))
+    #     )
+    # elif pred_type == "ffill":
+    #     interp = torch.tensor(masked_traces.copy(deep=True).ffill(axis=0).bfill(axis=0).values)
+    # elif pred_type in ["target", "pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
+    #     interp = pred_traces_
+
+    # if pred_type not in ["pred", "dap_f", "dap_b", "hybrid_s", "hybrid_s2", "hybrid_d"]:
+    #     ret[f"{pred_type}_dist"] = calc_pos_error(pred_traces_, target_traces_, mask_, aggfunc="sum", dataset=dataset)
+    #     ret[f"{pred_type}_pred"] = interp.clone()
+
+    # speed_error = calc_speed_error(pred_traces_, target_traces_, mask_, dataset)
+
+    # [time, players * feats] -> [time, players * 2]
+    pred = reshape_tensor(pred, dataset_type=dataset_type, upscale=False)
+    target = reshape_tensor(target, dataset_type=dataset_type, upscale=False)
+    mask = reshape_tensor(mask, dataset_type=dataset_type, upscale=False)
+
+    pe = calc_pos_error(pred, target, mask, aggfunc="sum", dataset=dataset_type, reshape=False, upscale=False)
+    se = calc_speed_error(pred, target, mask, dataset_type, upscale=False)
+    sce, ple = calc_step_change_and_path_length_errors(pred, target, mask, dataset_type, reshape=False, upscale=False)
+
+    return pe, se, sce, ple
+
+
+def reshape_tensor(
+    tensor: torch.Tensor,
+    upscale=False,
+    n_features=None,
+    mode="pos",
+    dataset_type="soccer",
+) -> torch.Tensor:
+    # tensor: [..., x] = [..., players * feats] -> xy: [..., players, 2]
+    n_players, ps = get_dataset_config(dataset_type)
 
     tensor = tensor.clone()
-    feat_dim = tensor.shape[-1] // players if n_features is None else n_features
+    n_features = tensor.shape[-1] // n_players if n_features is None else n_features
 
     idx_map = {"pos": (0, 1), "vel": (2, 3), "speed": (4,), "accel": (5,), "cartesian_accel": (4, 5)}
     idx = idx_map.get(mode, None)
     assert idx is not None, f"Invalid mode name : {mode}"
 
-    tensor_x = tensor[..., idx[0] :: feat_dim, None]
-    tensor_y = tensor[..., idx[1] :: feat_dim, None] if len(idx) == 2 else None
+    x = tensor[..., idx[0] :: n_features, None]  # [..., players, 1]
+    y = tensor[..., idx[1] :: n_features, None] if len(idx) == 2 else None
 
-    if rescale:
-        tensor_x *= ps[0]
-        tensor_y *= ps[1]
+    if upscale:
+        x *= ps[0]
+        y *= ps[1]
 
-    return torch.cat([tensor_x, tensor_y], dim=-1) if tensor_y is not None else tensor_x
+    xy = torch.cat([x, y], dim=-1) if y is not None else x  # [..., players, 2]
+    return xy
 
 
-def normalize_tensor(tensor, mode="upscale", dataset="soccer"):
+def normalize_tensor(tensor, mode="upscale", dataset_type="soccer"):
+    n_players, ps = get_dataset_config(dataset_type)
+
     tensor = tensor.clone()
-    players, ps = get_dataset_config(dataset)
-
-    n_features = tensor.shape[-1] // players
-    if tensor.shape[-1] < players:
+    if tensor.shape[-1] < n_players:  # if tensor.shape == [..., players, feats]
         n_features = tensor.shape[-1]
+    else:  # if tensor.shape == [..., players * feats]
+        n_features = tensor.shape[-1] // n_players
 
     if mode == "upscale":
         tensor[..., 0::n_features] *= ps[0]
@@ -630,7 +660,7 @@ def compute_camera_coverage(ball_pos: torch.Tensor, camera_info=(0, -20, 20, 30)
     return vertices
 
 
-def print_helper(ret, model_keys, trial=-1, dataset="soccer", save_txt=False):
+def print_helper(ret, pred_keys, trial=-1, dataset="soccer", save_txt=False):
     def get_key_index(key, model_keys):
         for model_key in model_keys:
             if model_key in key:
@@ -640,34 +670,34 @@ def print_helper(ret, model_keys, trial=-1, dataset="soccer", save_txt=False):
 
     if save_txt:
         f = open(f"saved/{trial:03d}/results.txt", "w+")
-    keys = [key for key in list(ret.keys()) if key not in ["n_frames", "n_missings"]]
-    keys = sorted(keys, key=lambda x: get_key_index(x, model_keys=model_keys))
+    keys = [key for key in list(ret.keys()) if key not in ["total_frames", "missing_frames"]]
+    keys = sorted(keys, key=lambda x: get_key_index(x, model_keys=pred_keys))
     for key in keys:
         if "df" in key:
             continue
         elif "travel" in key:
-            print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
+            print(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)}')
         elif "step_change" in key:
-            print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
+            print(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)}')
         elif "path_length" in key:
-            print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
+            print(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)}')
         elif "dist" in key:
-            print(f'{key} : {round(ret[key].item() / ret["n_missings"], 8)}')
+            print(f'{key} : {round(ret[key].item() / ret["missing_frames"], 8)}')
         else:
-            print(f'{key} : {round(ret[key] / ret["n_missings"], 8)}')
+            print(f'{key} : {round(ret[key] / ret["missing_frames"], 8)}')
 
         if save_txt:
             if "df" in key:
                 continue
             elif "travel" in key:
-                f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')
+                f.write(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)} \n')
             elif "step_change" in key:
-                f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')
+                f.write(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)} \n')
             elif "path_length" in key:
-                f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')
+                f.write(f'{key} : {round(ret[key] / (ret["total_frames"] * n_players), 8)} \n')
             elif "dist" in key:
-                f.write(f'{key} : {round(ret[key].item() / ret["n_missings"], 8)} \n')
+                f.write(f'{key} : {round(ret[key].item() / ret["missing_frames"], 8)} \n')
             else:
-                f.write(f'{key} : {round(ret[key] / ret["n_missings"], 8)} \n')
+                f.write(f'{key} : {round(ret[key] / ret["missing_frames"], 8)} \n')
     if save_txt:
         f.close()

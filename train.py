@@ -26,7 +26,7 @@ def printlog(line):
 
 def loss_str(loss_dict: dict):
     # loss_dict = [(k, v) for k, v in losses.items() if k.endswith("_loss")]
-    # dist_dict = [(k, v) for k, v in losses.items() if k.endswith("_dist")]
+    # dist_dict = [(k, v) for k, v in losses.items() if k.endswith("_pe")]
     # acc_dict = [(k, v) for k, v in losses.items() if k.endswith("accuracy")]
 
     # ret = "\n---------------Losses---------------\n"
@@ -44,7 +44,7 @@ def loss_str(loss_dict: dict):
 
     ret = ""
     for k, v in loss_dict.items():
-        if k.endswith("_loss") or k.endswith("_dist"):
+        if k.endswith("_loss") or k.endswith("_pe"):
             ret += f" {k}: {np.mean(v):.4f} |"
     return ret[1:-2]
 
@@ -69,27 +69,12 @@ def run_epoch(
     model.train() if train else model.eval()
     n_batches = len(loader)
 
-    # loss_keys = ["total"]
-    # pred_keys = ["pred"]
-    # if model.module.params["model"] == "dbhp":
-    #     if model.module.params["n_features"] == 6:
-    #         loss_keys += ["pos", "vel", "accel"]
-    #     if model.module.params["deriv_accum"]:
-    #         pred_keys += ["dap_f", "dap_b"]
-    #         if model.module.params["dynamic_hybrid"]:
-    #             pred_keys += ["hybrid_d"]
-
-    # loss_keys += pred_keys
-
-    # loss_dict = {f"{k}_loss": [] for k in loss_keys if k != "pred"}
-    # dist_dict = {f"{k}_dist": [] for k in pred_keys}
-
-    loss_dict = {"missing_rate": [], "total_loss": [], "pred_dist": []}
+    loss_dict = {"missing_rate": [], "total_loss": [], "pred_pe": []}
     if model.module.params["model"] == "dbhp" and model.module.params["deriv_accum"]:
-        loss_dict["dap_f_dist"] = []
-        loss_dict["dap_b_dist"] = []
+        loss_dict["dap_f_pe"] = []
+        loss_dict["dap_b_pe"] = []
         if model.module.params["dynamic_hybrid"]:
-            loss_dict["hybrid_d_dist"] = []
+            loss_dict["hybrid_d_pe"] = []
 
     for batch_idx, data in enumerate(loader):
         if model.module.params["model"] in ["dbhp", "brits", "naomi", "graph_imputer"]:
@@ -117,7 +102,7 @@ def run_epoch(
                     ret = model(data, model=model, teacher_forcing=ta, device=default_device)
 
         for k in loss_dict:
-            loss_dict[k] += [ret[k]] if k == "missing_rate" else [ret[k].item()]
+            loss_dict[k] += [ret[k].item()] if k == "total_loss" else [ret[k]]
 
         # for k in dist_dict:
         #     dist_dict[k] += [ret[k].item()]
@@ -278,7 +263,7 @@ if __name__ == "__main__":
         data_paths=train_paths,
         n_features=args.n_features,
         window_size=window_size,
-        episode_min_len=episode_min_len,
+        min_episode_size=episode_min_len,
         stride=args.window_stride,
         normalize=args.normalize,
         flip_pitch=args.flip_pitch,
@@ -288,7 +273,7 @@ if __name__ == "__main__":
         data_paths=valid_paths,
         n_features=args.n_features,
         window_size=window_size,
-        episode_min_len=episode_min_len,
+        min_episode_size=episode_min_len,
         stride=window_size,
         normalize=args.normalize,
         flip_pitch=False,
@@ -312,7 +297,7 @@ if __name__ == "__main__":
 
     # Train loop
     best_valid_loss = args.best_loss
-    best_valid_dist = 100
+    best_valid_pe = 100
 
     epochs_since_best = 0
     lr = max(args.start_lr, args.min_lr)
@@ -382,11 +367,11 @@ if __name__ == "__main__":
         # valid_loss = sum([value for key, value in valid_losses.items() if key.endswith("loss")])
         valid_loss = valid_losses["total_loss"]
         if args.model == "dbhp" and model.module.params["dynamic_hybrid"]:
-            valid_dist = valid_losses["hybrid_d_dist"]
+            valid_pe = valid_losses["hybrid_d_pe"]
         elif args.model == "dbhp" and model.module.params["deriv_accum"]:
-            valid_dist = np.mean(valid_losses["dap_f_dist"], valid_losses["dap_b_dist"])
+            valid_pe = np.mean(valid_losses["dap_f_pe"], valid_losses["dap_b_pe"])
         else:
-            valid_dist = valid_losses["pred_dist"]
+            valid_pe = valid_losses["pred_pe"]
 
         # Best model on test set
         if args.model != "nrtsi":
@@ -399,10 +384,10 @@ if __name__ == "__main__":
                 torch.save(model.module.state_dict(), path)
                 printlog("########## Best Model ###########")
 
-            if valid_dist < best_valid_dist:
-                best_valid_dist = valid_dist
+            if valid_pe < best_valid_pe:
+                best_valid_pe = valid_pe
                 epochs_since_best = 0
-                path = "{}/model/{}_state_dict_best_dist.pt".format(save_path, args.model)
+                path = "{}/model/{}_state_dict_best_pe.pt".format(save_path, args.model)
                 torch.save(model.module.state_dict(), path)
                 printlog("########## Best Dist. ###########")
 

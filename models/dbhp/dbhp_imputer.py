@@ -302,9 +302,9 @@ class DBHPImputer(nn.Module):
         feature_types = ["pos", "vel", "cartesian_accel"][: self.n_features // 2]
 
         for mode in feature_types:
-            pred_ = reshape_tensor(pred, mode=mode, dataset=self.dataset).transpose(1, 2)  # [bs, players, time, 2]
-            target_ = reshape_tensor(target, mode=mode, dataset=self.dataset).transpose(1, 2)
-            mask_ = reshape_tensor(mask, mode=mode, dataset=self.dataset).transpose(1, 2)
+            pred_ = reshape_tensor(pred, mode=mode, dataset_type=self.dataset).transpose(1, 2)  # [bs, players, time, 2]
+            target_ = reshape_tensor(target, mode=mode, dataset_type=self.dataset).transpose(1, 2)
+            mask_ = reshape_tensor(mask, mode=mode, dataset_type=self.dataset).transpose(1, 2)
 
             # if self.stochastic:
             #     mean_ = reshape_tensor(mean, mode=mode, dataset=self.dataset) # [bs, time, players, 2]

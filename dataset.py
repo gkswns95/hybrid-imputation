@@ -14,7 +14,7 @@ class SportsDataset(Dataset):
         data_paths=None,
         n_features=6,
         window_size=200,
-        episode_min_len=100,
+        min_episode_size=100,
         stride=0,
         normalize=False,
         flip_pitch=False,
@@ -32,11 +32,11 @@ class SportsDataset(Dataset):
             self.ps = (110, 49)
             self.team_size = 6  # number of input players per team
             window_size = 50
-            episode_min_len = 50
+            min_episode_size = 50
 
         self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"][:n_features]
         self.n_features = n_features
-        self.ws = window_size
+        self.window_size = window_size
         stride = window_size if stride == 0 else stride
 
         self.flip_pitch = flip_pitch
@@ -77,25 +77,25 @@ class SportsDataset(Dataset):
                     input_cols = team1_cols + team2_cols
 
                     episodes = [e for e in phase_traces["episode"].unique() if e > 0]
-                    for ep in episodes:
-                        ep_traces = match_traces[match_traces["episode"] == ep]
-                        ep_len = len(ep_traces)
+                    for e in episodes:
+                        ep_traces = match_traces[match_traces["episode"] == e]
+                        ep_size = len(ep_traces)
 
                         ep_pdata = ep_traces[input_cols].values
                         ep_bdata = ep_traces[["ball_x", "ball_y"]].values
 
-                        if ep_len > episode_min_len and ep_len < self.ws:
-                            pad_len = self.ws - ep_len
+                        if ep_size > min_episode_size and ep_size < self.window_size:
+                            pad_len = self.window_size - ep_size
                             ep_pdata = np.pad(ep_pdata, ((0, pad_len), (0, 0)), constant_values=self.pad_value)
                             ep_bdata = np.pad(ep_bdata, ((0, pad_len), (0, 0)), constant_values=self.pad_value)
                             player_data_list.append(ep_pdata)
                             ball_data_list.append(ep_bdata)
 
-                        elif ep_len >= self.ws:
-                            for i in range(ep_len - self.ws + 1):
-                                if i % stride == 0 or i == ep_len - self.ws:
-                                    player_data_list.append(ep_pdata[i : i + self.ws])
-                                    ball_data_list.append(ep_bdata[i : i + self.ws])
+                        elif ep_size >= self.window_size:
+                            for i in range(ep_size - self.window_size + 1):
+                                if i % stride == 0 or i == ep_size - self.window_size:
+                                    player_data_list.append(ep_pdata[i : i + self.window_size])
+                                    ball_data_list.append(ep_bdata[i : i + self.window_size])
 
             else:
                 if sports == "basketball":
@@ -104,19 +104,19 @@ class SportsDataset(Dataset):
                     player_cols = [f"player{i}{x}" for i in range(self.team_size) for x in self.feature_types]
 
                 episodes = [e for e in match_traces["episode"].unique() if e > 0]
-                for ep in episodes:
-                    ep_pdata = match_traces[match_traces["episode"] == ep][player_cols]
-                    ep_len = len(ep_pdata)
+                for e in episodes:
+                    ep_pdata = match_traces[match_traces["episode"] == e][player_cols]
+                    ep_size = len(ep_pdata)
 
-                    if ep_len > episode_min_len and ep_len < self.ws:
-                        pad_len = self.ws - ep_len
+                    if ep_size > min_episode_size and ep_size < self.window_size:
+                        pad_len = self.window_size - ep_size
                         ep_pdata = np.pad(ep_pdata, ((0, pad_len), (0, 0)), constant_values=self.pad_value)
                         player_data_list.append(ep_pdata)
 
-                    elif ep_len >= self.ws:
-                        for i in range(ep_len - self.ws + 1):
-                            if i % stride == 0 or i == ep_len - self.ws:
-                                player_data_list.append(ep_pdata[i : i + self.ws])
+                    elif ep_size >= self.window_size:
+                        for i in range(ep_size - self.window_size + 1):
+                            if i % stride == 0 or i == ep_size - self.window_size:
+                                player_data_list.append(ep_pdata[i : i + self.window_size])
 
         player_data = np.stack(player_data_list, axis=0) if player_data_list else np.array([])
         ball_data = np.stack(ball_data_list, axis=0) if ball_data_list else np.array([])  # only for soccer dataset
@@ -125,8 +125,8 @@ class SportsDataset(Dataset):
             self.ps = (1, 1)
 
         if n_features < 6:
-            player_data = player_data.reshape(player_data.shape[0], self.ws, -1, len(self.feature_types))
-            player_data = player_data[..., :n_features].reshape(player_data.shape[0], self.ws, -1)
+            player_data = player_data.reshape(player_data.shape[0], self.window_size, -1, len(self.feature_types))
+            player_data = player_data[..., :n_features].reshape(player_data.shape[0], self.window_size, -1)
 
         self.player_data = torch.FloatTensor(player_data)  # [bs, time, players * feats]
         self.ball_data = torch.FloatTensor(ball_data)  # [bs, time, 2], only for soccer dataset

@@ -46,17 +46,13 @@ class DBHP(nn.Module):
     def forward(self, data: Tuple[torch.Tensor], mode="train", device="cuda:0"):
         if mode == "test":
             if self.params["dataset"] == "afootball":  # randomly permute the player order
-                player_data = random_permutation(data[0], 6)
+                player_data = random_permutation(data[0], n_players=6)
             else:
-                player_data, sort_idxs = xy_sort_tensor(data[0], players=self.params["team_size"] * 2)
+                player_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["team_size"] * 2)
         else:
             player_data = data[0]  # [bs, time, x] = [bs, time, players * feats]
 
-        if self.params["dataset"] == "soccer":
-            ball_data = data[1]  # [bs, time, 2]
-        else:
-            ball_data = None
-
+        ball_data = data[1] if self.params["dataset"] == "soccer" else None  # [bs, time, 2]
         ret = {"target": player_data, "ball": ball_data}
 
         mask, missing_rate = generate_mask(
@@ -75,7 +71,7 @@ class DBHP(nn.Module):
         if self.params["missing_pattern"] == "camera" and mode == "test":  # for section 5
             ball_data = ret["ball"].clone().cpu()
             if self.params["normalize"]:
-                ball_loc_unnormalized = normalize_tensor(ball_data, mode="upscale", dataset=self.params["dataset"])
+                ball_loc_unnormalized = normalize_tensor(ball_data, mode="upscale", dataset_type=self.params["dataset"])
                 camera_vertices = compute_camera_coverage(ball_loc_unnormalized)
 
         # else:  # if missing_pattern in ["uniform", "playerwise"]
@@ -90,9 +86,9 @@ class DBHP(nn.Module):
         if self.params["cuda"]:
             mask, deltas_f, deltas_b = mask.to(device), deltas_f.to(device), deltas_b.to(device)
 
+        ret["input"] = player_data * mask
         ret["mask"] = mask
         ret["missing_rate"] = missing_rate
-        ret["input"] = player_data * mask
         ret["deltas_f"] = deltas_f
         ret["deltas_b"] = deltas_b
 
@@ -112,7 +108,7 @@ class DBHP(nn.Module):
             pred_keys += ["hybrid_d"]
 
         for k in pred_keys:
-            ret[f"{k}_dist"] = calc_trace_dist(
+            ret[f"{k}_pe"] = calc_pos_error(
                 ret[k],
                 ret["target"],
                 ret["mask"],
@@ -124,14 +120,10 @@ class DBHP(nn.Module):
             ret["camera_vertices"] = camera_vertices
 
         if mode == "test" and self.params["dataset"] != "afootball":
-            for k in pred_keys:
-                if k == "pred":
-                    ret[k] = xy_sort_tensor(ret[k], sort_idxs, self.params["team_size"] * 2, mode="restore")
-                else:
-                    ret[f"{k}_pred"] = xy_sort_tensor(
-                        ret[f"{k}_pred"], sort_idxs, self.params["team_size"] * 2, mode="restore"
-                    )
-            ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, self.params["team_size"] * 2, mode="restore")
+            ret["input"] = xy_sort_tensor(ret["input"], sort_idxs, self.params["team_size"] * 2, mode="restore")
             ret["mask"] = xy_sort_tensor(ret["mask"], sort_idxs, self.params["team_size"] * 2, mode="restore")
+            ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, self.params["team_size"] * 2, mode="restore")
+            for k in pred_keys:
+                ret[k] = xy_sort_tensor(ret[k], sort_idxs, self.params["team_size"] * 2, mode="restore")
 
         return ret
