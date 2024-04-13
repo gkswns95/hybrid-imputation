@@ -123,7 +123,7 @@ class VisualizeHelper:
                 ]
                 # plt.subplots_adjust(wspace=0.1)
             elif self.dataset == "basketball":
-                court = plt.imread("basketball_court.png")
+                court = plt.imread("img/basketball_court.png")
                 s1 = 10
                 s2 = 20
                 lw = 1.5
