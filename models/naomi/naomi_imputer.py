@@ -145,8 +145,10 @@ class NAOMIImputer(nn.Module):
                     else:
                         loss += self.calc_mae_loss(dec_mean_t, next_t)
 
-                    pred_t = reshape_tensor(dec_mean_t, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
-                    target_t = reshape_tensor(next_t, rescale=True, dataset=self.dataset)
+                    pred_t = reshape_tensor(
+                        dec_mean_t, upscale=True, dataset_type=self.dataset
+                    )  # [bs, total_players, 2]
+                    target_t = reshape_tensor(next_t, upscale=True, dataset_type=self.dataset)
                     pos_dist += torch.norm(pred_t - target_t, dim=-1).mean()
 
                     imput_count += 1
@@ -246,8 +248,8 @@ class NAOMIImputer(nn.Module):
             scale_factor = 10
 
         for mode in feature_types:
-            pred_ = reshape_tensor(pred, mode=mode, dataset=self.dataset)  # [bs, total_players, -1]
-            target_ = reshape_tensor(target, mode=mode, dataset=self.dataset)
+            pred_ = reshape_tensor(pred, mode=mode, dataset_type=self.dataset)  # [bs, total_players, -1]
+            target_ = reshape_tensor(target, mode=mode, dataset_type=self.dataset)
 
             mae_loss = torch.abs(pred_ - target_).mean()
 

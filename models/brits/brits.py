@@ -104,10 +104,10 @@ class BRITS(nn.Module):
         mask = ret_f["mask"]
 
         aggfunc = "mean" if mode == "train" else "sum"
-        pos_dist = calc_trace_dist(pred, target, mask, aggfunc=aggfunc, dataset=self.params["dataset"])
+        pos_error = calc_pos_error(pred, target, mask, aggfunc=aggfunc, dataset=self.params["dataset"])
 
         ret_f["total_loss"] = loss
-        ret_f["pred_dist"] = pos_dist
+        ret_f["pred_pe"] = pos_error
         ret_f["pred"] = pred
 
         return ret_f

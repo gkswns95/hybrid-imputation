@@ -40,7 +40,7 @@ class NAOMI(nn.Module):
             self.model = NAOMIImputer(self.params)
 
     def forward(self, data, mode="train", teacher_forcing=False, device="cuda:0"):
-        ret = {"loss": 0, "pos_dist": 0}
+        ret = {"loss": 0, "pos_error": 0}
 
         n_features = self.params["n_features"]
         dataset = self.params["dataset"]
@@ -102,9 +102,9 @@ class NAOMI(nn.Module):
             input_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 1+feat_dim]
 
         if teacher_forcing:
-            batch_loss, pos_dist = self.model(input_data, target_data)
+            batch_loss, pos_error = self.model(input_data, target_data)
             ret["total_loss"] = batch_loss
-            ret["pred_dist"] = pos_dist
+            ret["pred_pe"] = pos_error
         else:
             data_list = []
             for j in range(seq_len):
@@ -122,10 +122,10 @@ class NAOMI(nn.Module):
             batch_loss = self.model.calc_mae_loss(pred, target_)
 
             aggfunc = "mean" if mode == "train" else "sum"
-            pos_dist = calc_trace_dist(pred, target_, mask_, n_features=n_features, aggfunc=aggfunc, dataset=dataset)
+            pos_error = calc_pos_error(pred, target_, mask_, n_features=n_features, aggfunc=aggfunc, dataset=dataset)
 
             ret["total_loss"] = batch_loss
-            ret["pred_dist"] = pos_dist
+            ret["pred_pe"] = pos_error
 
             ret["pred"] = pred
             ret["target"] = target_

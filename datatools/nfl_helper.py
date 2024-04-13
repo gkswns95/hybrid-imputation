@@ -172,7 +172,7 @@ class NFLDataHelper(TraceHelper):
             if dataset == "soccer":
                 window_ball = ball_traces[:, i_from:i_to]
 
-            window_target_ = reshape_tensor(target_traces[:, i_from:i_to], dataset=dataset).flatten(2, 3)
+            window_target_ = reshape_tensor(target_traces[:, i_from:i_to], dataset_type=dataset).flatten(2, 3)
             if window_input.shape[1] != wlen:
                 for key in model_keys:
                     episode_pred_dict[key][i_from:i_to] = window_target_
@@ -203,7 +203,7 @@ class NFLDataHelper(TraceHelper):
                     else:
                         imputer_key = key + "_pred"
                     traces = window_ret[imputer_key].detach().cpu().squeeze(0)
-                    calc_statistic_metrics(traces, targets, masks, window_ret, imputer=key, dataset=dataset)
+                    calc_pred_errors(traces, targets, masks, window_ret, pred_type=key, dataset_type=dataset)
 
             # Save sequence results
             episode_mask[i_from:i_to] = window_ret["mask"].detach().cpu().squeeze(0)
@@ -214,20 +214,20 @@ class NFLDataHelper(TraceHelper):
                     episode_pred_dict[key][i_from:i_to] = window_ret[f"{key}_pred"].detach().cpu().squeeze(0)
 
             for key in ret_keys:
-                if key == "n_frames":
+                if key == "total_frames":
                     episode_ret[key] += seq_len
-                elif key == "n_missings":
+                elif key == "missing_frames":
                     episode_ret[key] += ((1 - masks).sum() / model.params["n_features"]).item()
                 else:
                     episode_ret[key] += window_ret[key]
 
         # Update episode ret
-        episode_df_ret = {"mask_df": episode_mask}
+        episode_df_ret = {"mask": episode_mask}
         for key in model_keys:
             if key == "pred":
                 if model.params["normalize"]:
                     episode_pred = normalize_tensor(episode_pred, mode="upscale")
-                episode_df_ret["pred_df"] = episode_pred
+                episode_df_ret["pred"] = episode_pred
             else:
                 if model.params["normalize"]:
                     episode_pred_dict[key] = normalize_tensor(episode_pred_dict[key], mode="upscale")
@@ -247,7 +247,7 @@ class NFLDataHelper(TraceHelper):
         input_cols = [f"player{p}{f}" for p in players for f in feature_types]
 
         model_keys = ["pred"]
-        ret_keys = ["n_frames", "n_missings"]
+        ret_keys = ["total_frames", "missing_frames"]
         if model.params["model"] == "dbhp":
             if model.params["deriv_accum"]:
                 model_keys += ["dap_f", "dap_b"]
@@ -256,14 +256,14 @@ class NFLDataHelper(TraceHelper):
         if statistic_metrics:
             model_keys += ["linear", "knn", "forward"]
 
-            metrics = ["speed", "change_of_step_size", "path_length"]
+            metrics = ["speed", "step_change", "path_length"]
             ret_keys += [f"{m}_{metric}" for m in model_keys for metric in metrics]
 
-        ret_keys += [f"{m}_dist" for m in model_keys]
+        ret_keys += [f"{m}_pe" for m in model_keys]
         ret = {key: 0 for key in ret_keys}
 
         # Init results dataframes (predictions, mask)
-        df_dict = TraceHelper.init_results_df(self.traces, model_keys, input_cols)
+        df_dict = TraceHelper.init_pred_results(self.traces, model_keys, input_cols)
 
         x_cols = [c for c in self.traces.columns if c.endswith("_x")]
         y_cols = [c for c in self.traces.columns if c.endswith("_y")]
@@ -287,14 +287,14 @@ class NFLDataHelper(TraceHelper):
                     ret_keys,
                     model_keys,
                     model,
-                    wlen=50,
-                    statistic_metrics=statistic_metrics,
+                    window_size=50,
+                    naive_baselines=statistic_metrics,
                     gap_models=gap_models,
-                    dataset=dataset,
+                    dataset_type=dataset,
                 )
 
             # Update results dataframes (episode_predictions, episode_mask)
-            TraceHelper.update_results_df(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
+            TraceHelper.update_pred_results(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
 
             for key in episode_ret:
                 ret[key] += episode_ret[key]
@@ -343,15 +343,12 @@ class NFLDataHelper(TraceHelper):
         )
         test_data = test_dataset.input_data
 
-        loss, avg_loss, gt_change_of_step_size, imp_change_of_step_size, gt_path_len, path_len, pos_dist = (
-            NFLDataHelper.run_imputation(
-                model, test_data, ckpt_dict, fig_path, n_sample=self.n_sample, model_name=model.params["model"]
-            )
+        loss, avg_loss, target_sc, imp_sc, gt_path_len, path_len, pos_dist = NFLDataHelper.run_imputation(
+            model, test_data, ckpt_dict, fig_path, n_sample=self.n_sample, model_name=model.params["model"]
         )
         output_str = (
             "Testing_Loss: %4f, Avg Loss: %4f, Gt Change of Step Size: %4f, Impute Change of Step Size: %4f,"
-            "Gt Path Len: %4f, Path Len: %4f"
-            % (loss, avg_loss, gt_change_of_step_size, imp_change_of_step_size, gt_path_len, path_len)
+            "Gt Path Len: %4f, Path Len: %4f" % (loss, avg_loss, target_sc, imp_sc, gt_path_len, path_len)
         )
 
         return output_str, pos_dist
@@ -377,12 +374,12 @@ class NFLDataHelper(TraceHelper):
         count = 0
 
         pos_dist = 0.0
-        n_missings = 0.0
+        missing_frames = 0.0
 
-        total_change_of_step_size = 0
-        gt_total_change_of_step_size = 0
+        total_sc = 0
+        target_total_sc = 0
         path_length = 0
-        gt_path_length = 0
+        target_path_length = 0
 
         if exp_data.shape[0] < batch_size:
             batch_size = exp_data.shape[0]
@@ -455,16 +452,16 @@ class NFLDataHelper(TraceHelper):
                     ground_truth : [time, bs, x_dim]
                     mask : [time, bs, x_dim]
                     """
-                    imputation_ = reshape_tensor(imputation, rescale=False, dataset="football")  # [time, bs, 6, 2]
-                    ground_truth_ = reshape_tensor(ground_truth, rescale=False, dataset="football")
+                    imputation_ = reshape_tensor(imputation, upscale=False, dataset_type="football")  # [time, bs, 6, 2]
+                    ground_truth_ = reshape_tensor(ground_truth, upscale=False, dataset_type="football")
 
                     step_size = torch.norm(imputation_[1:] - imputation_[:-1], dim=-1)
-                    total_change_of_step_size += step_size.std(0).mean()
+                    total_sc += step_size.std(0).mean()
                     path_length += step_size.sum(0).mean()
 
                     step_size = torch.norm(ground_truth_[1:] - ground_truth_[:-1], dim=-1)
-                    gt_total_change_of_step_size += step_size.std(0).mean().item()
-                    gt_path_length += step_size.sum(0).mean()
+                    target_total_sc += step_size.std(0).mean().item()
+                    target_path_length += step_size.sum(0).mean()
 
                     imputation = imputation_.flatten(2, 3)  # [time, bs, -1]
                     ground_truth = ground_truth_.flatten(2, 3)
@@ -515,24 +512,26 @@ class NFLDataHelper(TraceHelper):
                     target_ = ret["target"]
                     mask_ = ret["mask"]
 
-                    xy_mask = reshape_tensor(mask_, dataset="afootball").flatten(2, 3)
-                    xy_target = reshape_tensor(target_, dataset="afootball").flatten(2, 3)
+                    xy_mask = reshape_tensor(mask_, dataset_type="afootball").flatten(2, 3)
+                    xy_target = reshape_tensor(target_, dataset_type="afootball").flatten(2, 3)
                     imputation = imputation * (1 - xy_mask) + xy_target * xy_mask
 
                     imputation = imputation.transpose(0, 1)  # [time, bs, x_dim]
                     target_ = target_.transpose(0, 1)
                     mask_ = mask_.transpose(0, 1)
 
-                    imputation_ = reshape_tensor(imputation, rescale=False, dataset="afootball")  # [time, bs, 6, 2]
-                    target_ = reshape_tensor(target_, rescale=False, dataset="afootball")
+                    imputation_ = reshape_tensor(
+                        imputation, upscale=False, dataset_type="afootball"
+                    )  # [time, bs, 6, 2]
+                    target_ = reshape_tensor(target_, upscale=False, dataset_type="afootball")
 
                     step_size = torch.norm(imputation_[1:] - imputation_[:-1], dim=-1)
-                    total_change_of_step_size += step_size.std(0).mean()
+                    total_sc += step_size.std(0).mean()
                     path_length += step_size.sum(0).mean()
 
                     step_size = torch.norm(target_[1:] - target_[:-1], dim=-1)
-                    gt_total_change_of_step_size += step_size.std(0).mean().item()
-                    gt_path_length += step_size.sum(0).mean()
+                    target_total_sc += step_size.std(0).mean().item()
+                    target_path_length += step_size.sum(0).mean()
 
                     imputation_ = imputation_.flatten(2, 3)  # [time, bs, -1]
                     target_ = target_.flatten(2, 3)
@@ -542,8 +541,8 @@ class NFLDataHelper(TraceHelper):
                     min_mse[mse < min_mse] = mse[mse < min_mse]
 
                     if model_name in ["dbhp", "brits", "naomi", "nrtsi"]:
-                        pos_dist += calc_trace_dist(imputation_, target_, mask_, aggfunc="sum", dataset="football")
-                        n_missings += bs * num_missing * 6
+                        pos_dist += calc_pos_error(imputation_, target_, mask_, aggfunc="sum", dataset="football")
+                        missing_frames += bs * num_missing * 6
 
             count += 1
             loss += min_mse.mean()
@@ -551,19 +550,19 @@ class NFLDataHelper(TraceHelper):
 
         loss /= count
         avg_loss /= count
-        gt_total_change_of_step_size /= n_sample * count
-        total_change_of_step_size /= n_sample * count
-        gt_path_length /= n_sample * count
+        target_total_sc /= n_sample * count
+        total_sc /= n_sample * count
+        target_path_length /= n_sample * count
         path_length /= n_sample * count
 
-        pos_dist /= n_missings + 1e-6
+        pos_dist /= missing_frames + 1e-6
 
         return (
             loss,
             avg_loss,
-            gt_total_change_of_step_size,
-            total_change_of_step_size,
-            gt_path_length,
+            target_total_sc,
+            total_sc,
+            target_path_length,
             path_length,
             pos_dist,
         )

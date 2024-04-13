@@ -10,7 +10,7 @@ import seaborn as sns
 import torch
 
 import datatools.matplotsoccer as mps
-from models.utils import calc_trace_dist, get_dataset_config, reshape_tensor
+from models.utils import calc_pos_error, get_dataset_config, reshape_tensor
 
 if not os.getcwd() in sys.path:
     sys.path.append(os.getcwd())
@@ -166,7 +166,7 @@ class VisualizeHelper:
         mask = self.pred_dict["window_mask"]
         lambdas = self.pred_dict["window_lambdas"]
 
-        m = reshape_tensor(mask, dataset=self.dataset)
+        m = reshape_tensor(mask, dataset_type=self.dataset)
         m = m[..., 1].squeeze(-1)
         m = np.array((m == 1))
 
@@ -197,9 +197,9 @@ class VisualizeHelper:
 
             pred = self.pred_dict[f"window_{key}"]
 
-            pred_dist = calc_trace_dist(pred, target, mask, rescale=False, aggfunc="tensor", dataset=self.dataset)
+            pred_dist = calc_pos_error(pred, target, mask, upscale=False, aggfunc="tensor", dataset=self.dataset)
 
-            m = reshape_tensor(mask, dataset=self.dataset)
+            m = reshape_tensor(mask, dataset_type=self.dataset)
             m = m[..., 1].squeeze(-1)
             m = np.array((m == 1))
 

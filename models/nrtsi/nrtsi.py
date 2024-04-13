@@ -91,7 +91,7 @@ class NRTSI(nn.Module):
         total_loss = Variable(torch.tensor(0.0), requires_grad=True).to(device)
 
         num_levels = torch.tensor(1e-6)
-        pos_dist, n_missings = torch.tensor(1e-6), torch.tensor(1e-6)
+        pos_dist, missing_frames = torch.tensor(1e-6), torch.tensor(1e-6)
 
         if mode == "train":
             init_obs = True
@@ -117,10 +117,10 @@ class NRTSI(nn.Module):
                     imputations = self.model(obs_data, obs_list, next_list, gap)  # [bs, n_imp, y_dim]
                     if self.params["stochastic"]:
                         gt_data_ = reshape_tensor(
-                            gt_data, rescale=False, n_features=n_features, dataset=dataset
+                            gt_data, upscale=False, n_features=n_features, dataset_type=dataset
                         ).flatten(2, 3)
                         imputations_ = reshape_tensor(
-                            imputations, rescale=False, n_features=n_features, dataset=dataset
+                            imputations, upscale=False, n_features=n_features, dataset_type=dataset
                         ).flatten(2, 3)
 
                         total_loss += nll_gauss(gt_data_, imputations_)
@@ -129,23 +129,27 @@ class NRTSI(nn.Module):
                         total_loss += torch.mean(torch.abs(imputations - gt_data))
 
                     imputations_ = (
-                        reshape_tensor(imputations, rescale=True, n_features=n_features, dataset=dataset).detach().cpu()
+                        reshape_tensor(imputations, upscale=True, n_features=n_features, dataset_type=dataset)
+                        .detach()
+                        .cpu()
                     )  # [bs, n_imp, total_players, 2]
                     gt_data_ = (
-                        reshape_tensor(gt_data, rescale=True, n_features=n_features, dataset=dataset).detach().cpu()
+                        reshape_tensor(gt_data, upscale=True, n_features=n_features, dataset_type=dataset)
+                        .detach()
+                        .cpu()
                     )
                     mask_ = (
-                        reshape_tensor(mask, rescale=False, n_features=n_features, dataset=dataset).detach().cpu()
+                        reshape_tensor(mask, upscale=False, n_features=n_features, dataset_type=dataset).detach().cpu()
                     )  # [bs, time, total_players, 2]
                     pos_dist += torch.sum(torch.norm(imputations_ - gt_data_, dim=-1))
-                    n_missings += (1 - mask_[:, next_list_count]).sum() / 2
+                    missing_frames += (1 - mask_[:, next_list_count]).sum() / 2
 
                     num_levels += 1
 
                     if not teacher_forcing:
                         obs_data = torch.cat([obs_data, imputations], dim=1)  # [bs, n_imp + n_obs, y_dim]
             ret["total_loss"] = total_loss / num_levels
-            ret["pred_dist"] = pos_dist / n_missings
+            ret["pred_dist"] = pos_dist / missing_frames
 
         else:  # e.g. "test"
             n_samples = 1 if dataset == "football" else 1
@@ -192,8 +196,8 @@ class NRTSI(nn.Module):
 
                     obs_data = torch.cat([obs_data, imputations], dim=1)  # [bs, n_imp + n_obs, y_dim]
 
-                pred_ = reshape_tensor(pred, rescale=True, n_features=n_features, dataset=dataset)
-                target_ = reshape_tensor(target_data, rescale=True, n_features=n_features, dataset=dataset)
+                pred_ = reshape_tensor(pred, upscale=True, n_features=n_features, dataset_type=dataset)
+                target_ = reshape_tensor(target_data, upscale=True, n_features=n_features, dataset_type=dataset)
 
                 ret["pred_dist"] = torch.norm(pred_ - target_, dim=-1).sum()
                 ret["pred"] = pred

@@ -419,22 +419,22 @@ class BidirectionalGraphImputer(nn.Module):
             out = 0.5 * forward_out + 0.5 * backward_out
         loss = forward_loss + backward_loss
 
-        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
-        target_t = reshape_tensor(player_data, rescale=True, dataset=self.dataset)
+        pred_t = reshape_tensor(out, upscale=True, dataset_type=self.dataset)  # [bs, total_players, 2]
+        target_t = reshape_tensor(player_data, upscale=True, dataset_type=self.dataset)
 
-        # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
+        # pos_pe = torch.norm(pred_t - target_t, dim=-1).sum()
 
         ret["target"] = player_data
         ret["pred"] = out
         ret["mask"] = mask
         ret["total_loss"] = loss
-        ret["pred_dist"] = calc_trace_dist(
+        ret["pred_pe"] = calc_pos_error(
             ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="mean", dataset=self.dataset
         )
-        ret["pred_dist_sum"] = calc_trace_dist(
+        ret["pred_pe_sum"] = calc_pos_error(
             ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
         )
-        # ret['pos_dist'] = pos_dist.item()
+        # ret['pos_pe'] = pos_pe.item()
 
         return ret
 
@@ -501,20 +501,20 @@ class BidirectionalGraphImputer(nn.Module):
 
         loss = forward_loss + backward_loss
 
-        pred_t = reshape_tensor(out, rescale=True, dataset=self.dataset)  # [bs, total_players, 2]
-        target_t = reshape_tensor(player_data, rescale=True, dataset=self.dataset)
+        pred_t = reshape_tensor(out, upscale=True, dataset_type=self.dataset)  # [bs, total_players, 2]
+        target_t = reshape_tensor(player_data, upscale=True, dataset_type=self.dataset)
 
-        # pos_dist = torch.norm(pred_t - target_t, dim=-1).sum()
+        # pos_pe = torch.norm(pred_t - target_t, dim=-1).sum()
 
         ret["target"] = player_data
         ret["pred"] = out
         ret["mask"] = mask
         ret["total_loss"] = loss
-        ret["pred_dist"] = calc_trace_dist(
+        ret["pred_pe"] = calc_pos_error(
             ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
         )
-        ret["pred_dist_sum"] = calc_trace_dist(
+        ret["pred_pe_sum"] = calc_pos_error(
             ret["pred"], ret["target"], ret["mask"], n_features=self.n_features, aggfunc="sum", dataset=self.dataset
         )
-        # ret['pos_dist'] = pos_dist.item()
+        # ret['pos_pe'] = pos_pe.item()
         return ret

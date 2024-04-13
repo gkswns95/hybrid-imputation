@@ -218,7 +218,7 @@ class NBADataHelper(TraceHelper):
         input_cols = [f"player{p}{f}" for p in players for f in feature_types]
 
         model_keys = ["pred"]
-        ret_keys = ["n_frames", "n_missings"]
+        ret_keys = ["total_frames", "missing_frames"]
         if model_name == "dbhp":
             if model.params["deriv_accum"]:
                 model_keys += ["dap_f", "dap_b"]
@@ -227,14 +227,14 @@ class NBADataHelper(TraceHelper):
         if statistic_metrics:
             model_keys += ["linear", "knn", "forward"]
 
-            metrics = ["speed", "change_of_step_size", "path_length"]
+            metrics = ["speed", "step_change", "path_length"]
             ret_keys += [f"{m}_{metric}" for m in model_keys for metric in metrics]
 
-        ret_keys += [f"{m}_dist" for m in model_keys]
+        ret_keys += [f"{m}_pe" for m in model_keys]
         ret = {key: 0 for key in ret_keys}
 
         # Init results dataframes (predictions, mask)
-        df_dict = TraceHelper.init_results_df(self.traces, model_keys, input_cols)
+        df_dict = TraceHelper.init_pred_results(self.traces, model_keys, input_cols)
         if model_name == "dbhp" and model.params["dynamic_hybrid"]:
             weights_cols = [f"player{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
             hybrid_weight_df = self.traces.copy(deep=True)
@@ -262,13 +262,13 @@ class NBADataHelper(TraceHelper):
                     ret_keys,
                     model_keys,
                     model,
-                    statistic_metrics=statistic_metrics,
+                    naive_baselines=statistic_metrics,
                     gap_models=gap_models,
-                    dataset=dataset,
+                    dataset_type=dataset,
                 )
 
             # Update results dataframes (episode_predictions, episode_mask)
-            TraceHelper.update_results_df(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
+            TraceHelper.update_pred_results(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
             if model_name == "dbhp" and model.params["dynamic_hybrid"]:
                 weight_player_cols = [c.split("_x")[0] for c in input_cols if "_x" in c]
                 input_weight_cols = [f"{p}{w}" for p in weight_player_cols for w in ["_w0", "_w1", "_w2"]]
@@ -524,7 +524,7 @@ class NBADataAnimator:
 
         anim = animation.FuncAnimation(fig, animate, frames=len(self.trace_dict["main"]), interval=100.0)
 
-        court = plt.imread("basketball_court.png")
+        court = plt.imread("img/basketball_court.png")
         # court = plt.imread("court.png")
         plt.imshow(court, zorder=0, extent=[Constant.X_MIN, Constant.X_MAX, Constant.Y_MAX, Constant.Y_MIN])
         plt.show()

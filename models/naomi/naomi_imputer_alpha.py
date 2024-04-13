@@ -105,7 +105,7 @@ class NAOMIImputerAlpha(nn.Module):
             h, h_back = h.to(device), h_back.to(device)
 
         loss = 0.0
-        pos_dist = 0.0
+        pos_pe = 0.0
         h_back_dict = {}
         imput_count = 0
         count = 0
@@ -138,16 +138,16 @@ class NAOMIImputerAlpha(nn.Module):
                             loss += nll_gauss(dec_mean_t, dec_std_t, next_t)
                         else:
                             loss += self.calc_mae_loss(dec_mean_t, next_t)
-                            pred_t = reshape_tensor(dec_mean_t, n_features=self.n_features, rescale=True)
-                            target_t = reshape_tensor(next_t, n_features=self.n_features, rescale=True)
-                            pos_dist += torch.norm(pred_t - target_t, dim=-1).mean()
+                            pred_t = reshape_tensor(dec_mean_t, n_features=self.n_features, upscale=True)
+                            target_t = reshape_tensor(next_t, n_features=self.n_features, upscale=True)
+                            pos_pe += torch.norm(pred_t - target_t, dim=-1).mean()
 
                         imput_count += 1
 
         loss = loss / imput_count
-        pos_dist = pos_dist / imput_count
+        pos_pe = pos_pe / imput_count
 
-        return loss, pos_dist.item()
+        return loss, pos_pe.item()
 
     def sample(self, data_list):
         device = data_list[0].device
@@ -249,9 +249,9 @@ class NAOMIImputerAlpha(nn.Module):
 
         for mode in feature_types:
             pred_ = reshape_tensor(
-                pred, n_features=self.n_features, mode=mode, dataset=self.dataset
+                pred, n_features=self.n_features, mode=mode, dataset_type=self.dataset
             )  # [bs, total_players, -1]
-            target_ = reshape_tensor(target, n_features=self.n_features, mode=mode, dataset=self.dataset)
+            target_ = reshape_tensor(target, n_features=self.n_features, mode=mode, dataset_type=self.dataset)
 
             mae_loss = torch.abs(pred_ - target_).mean()
 

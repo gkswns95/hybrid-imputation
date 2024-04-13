@@ -93,7 +93,7 @@ class NRTSI(nn.Module):
         total_loss = Variable(torch.tensor(0.0), requires_grad=True).to(device)
 
         num_levels = 1e-6
-        pos_dist, n_missings = 1e-6, 1e-6
+        pos_dist, missing_frames = 1e-6, 1e-6
 
         if mode == "train":
             init_obs = True
@@ -133,9 +133,9 @@ class NRTSI(nn.Module):
 
                     for mode in feature_types:
                         if self.params["stochastic"]:
-                            pred_mean_ = reshape_tensor(pred[..., : gt_data.shape[-1]], mode=mode, dataset=dataset)
-                            pred_std_ = reshape_tensor(pred[..., gt_data.shape[-1] :], mode=mode, dataset=dataset)
-                            gt_data_ = reshape_tensor(gt_data, mode=mode, dataset=dataset)
+                            pred_mean_ = reshape_tensor(pred[..., : gt_data.shape[-1]], mode=mode, dataset_type=dataset)
+                            pred_std_ = reshape_tensor(pred[..., gt_data.shape[-1] :], mode=mode, dataset_type=dataset)
+                            gt_data_ = reshape_tensor(gt_data, mode=mode, dataset_type=dataset)
 
                             # sampling
                             if mode == "pos":
@@ -146,8 +146,8 @@ class NRTSI(nn.Module):
                             # compute loss
                             loss = nll_gauss(pred_mean_, pred_std_, gt_data_)
                         else:
-                            pred_ = reshape_tensor(pred, mode=mode, dataset=dataset)
-                            gt_data_ = reshape_tensor(gt_data, mode=mode, dataset=dataset)
+                            pred_ = reshape_tensor(pred, mode=mode, dataset_type=dataset)
+                            gt_data_ = reshape_tensor(gt_data, mode=mode, dataset_type=dataset)
                             loss = torch.mean(torch.abs(pred_ - gt_data))
 
                         if mode in ["accel", "speed"]:
@@ -161,21 +161,21 @@ class NRTSI(nn.Module):
                             total_loss += loss
 
                     imputations_ = (
-                        reshape_tensor(imputations, rescale=True, dataset=dataset).detach().cpu()
+                        reshape_tensor(imputations, upscale=True, dataset_type=dataset).detach().cpu()
                     )  # [bs, n_imp, total_players, 2]
-                    gt_data_ = reshape_tensor(gt_data, rescale=True, dataset=dataset).detach().cpu()
+                    gt_data_ = reshape_tensor(gt_data, upscale=True, dataset_type=dataset).detach().cpu()
                     mask_ = (
-                        reshape_tensor(mask, rescale=False, dataset=dataset).detach().cpu()
+                        reshape_tensor(mask, upscale=False, dataset_type=dataset).detach().cpu()
                     )  # [bs, time, total_players, 2]
                     pos_dist += torch.sum(torch.norm(imputations_ - gt_data_, dim=-1))
-                    n_missings += (1 - mask_[:, next_list_count]).sum() / 2
+                    missing_frames += (1 - mask_[:, next_list_count]).sum() / 2
 
                     num_levels += 1
 
                     if not teacher_forcing:
                         obs_data = torch.cat([obs_data, imputations], dim=1)  # [bs, n_imp + n_obs, y_dim]
             ret["loss"] = total_loss / num_levels
-            ret["pos_dist"] = pos_dist / n_missings
+            ret["pos_dist"] = pos_dist / missing_frames
 
         else:  # e.g. "test"
             n_samples = 1 if dataset == "football" else 1
@@ -215,10 +215,12 @@ class NRTSI(nn.Module):
 
                     if self.params["stochastic"]:
                         pred_mean_ = reshape_tensor(
-                            imputations[..., : gt_data.shape[-1]], mode=mode, dataset=dataset
+                            imputations[..., : gt_data.shape[-1]], mode=mode, dataset_type=dataset
                         )  # [bs, n_imp, players, 2(x,y)]
-                        pred_std_ = reshape_tensor(imputations[..., gt_data.shape[-1] :], mode=mode, dataset=dataset)
-                        gt_data_ = reshape_tensor(gt_data, mode=mode, dataset=dataset)
+                        pred_std_ = reshape_tensor(
+                            imputations[..., gt_data.shape[-1] :], mode=mode, dataset_type=dataset
+                        )
+                        gt_data_ = reshape_tensor(gt_data, mode=mode, dataset_type=dataset)
 
                         sampled_postion = sample_gauss(
                             pred_mean_, pred_std_, gt_data_, gap=gap
@@ -229,8 +231,8 @@ class NRTSI(nn.Module):
 
                     obs_data = torch.cat([obs_data, imputations], dim=1)  # [bs, n_imp + n_obs, y_dim]
 
-                pred_ = reshape_tensor(pred, rescale=True, n_features=n_features, dataset=dataset)
-                target_ = reshape_tensor(target_data, rescale=True, n_features=n_features, dataset=dataset)
+                pred_ = reshape_tensor(pred, upscale=True, n_features=n_features, dataset_type=dataset)
+                target_ = reshape_tensor(target_data, upscale=True, n_features=n_features, dataset_type=dataset)
 
                 ret["pos_dist"] = torch.norm(pred_ - target_, dim=-1).sum().item()
 

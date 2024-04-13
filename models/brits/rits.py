@@ -176,9 +176,9 @@ class RITS(nn.Module):
             scale_fatcor = 10
 
         for mode in feature_types:
-            pred_ = reshape_tensor(pred, mode=mode, dataset=self.dataset)  # [bs, total_players, -1]
-            target_ = reshape_tensor(target, mode=mode, dataset=self.dataset)
-            mask_ = reshape_tensor(mask, mode=mode, dataset=self.dataset)
+            pred_ = reshape_tensor(pred, mode=mode, dataset_type=self.dataset)  # [bs, total_players, -1]
+            target_ = reshape_tensor(target, mode=mode, dataset_type=self.dataset)
+            mask_ = reshape_tensor(mask, mode=mode, dataset_type=self.dataset)
 
             mae_loss = torch.sum(torch.abs(pred_ - target_) * (1 - mask_)) / torch.sum((1 - mask_) + 1e-5)
 

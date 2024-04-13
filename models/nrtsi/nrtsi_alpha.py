@@ -86,7 +86,7 @@ class NRTSI(nn.Module):
         loss = Variable(torch.tensor(0.0), requires_grad=True).to(device)
 
         num_levels = 1e-6
-        pos_dist, n_missings = 1e-6, 1e-6
+        pos_dist, missing_frames = 1e-6, 1e-6
 
         input_data = input_data.reshape(bs, seq_len, total_players, -1)  # [bs, time, total_players, feat_dim]
         target_data = target_data.reshape(bs, seq_len, total_players, -1)
@@ -124,29 +124,29 @@ class NRTSI(nn.Module):
 
                         if dataset == "football":
                             gt_data_ = reshape_tensor(
-                                gt_data, rescale=False, n_features=n_features, dataset=dataset
+                                gt_data, upscale=False, n_features=n_features, dataset_type=dataset
                             ).flatten(2, 3)
                             loss += nll_gauss(gt_data_, imputations)
                         else:
                             loss += torch.mean(torch.abs(imputations - gt_data))
                             imputations_ = (
-                                reshape_tensor(imputations, rescale=True, n_features=n_features, dataset=dataset)
+                                reshape_tensor(imputations, upscale=True, n_features=n_features, dataset_type=dataset)
                                 .detach()
                                 .cpu()
                             )  # [bs, n_imp, 1, 2]
                             gt_data_ = (
-                                reshape_tensor(gt_data, rescale=True, n_features=n_features, dataset=dataset)
+                                reshape_tensor(gt_data, upscale=True, n_features=n_features, dataset_type=dataset)
                                 .detach()
                                 .cpu()
                             )
                             mask_ = (
-                                reshape_tensor(p_mask_, rescale=False, n_features=n_features, dataset=dataset)
+                                reshape_tensor(p_mask_, upscale=False, n_features=n_features, dataset_type=dataset)
                                 .detach()
                                 .cpu()
                             )  # [bs, time, 1, 2]
 
                             pos_dist += torch.sum(torch.norm(imputations_ - gt_data_, dim=-1))
-                            n_missings += (1 - mask_[:, next_list_count]).sum() / 2
+                            missing_frames += (1 - mask_[:, next_list_count]).sum() / 2
 
                         num_levels += 1
 
@@ -156,7 +156,7 @@ class NRTSI(nn.Module):
             ret["loss"] = loss / num_levels
             # ret["mse_loss"] = mse_loss / num_levels
             if dataset != "football":
-                ret["pos_dist"] = pos_dist / n_missings
+                ret["pos_dist"] = pos_dist / missing_frames
 
         else:  # e.g. "test"
             pred = target_data.clone()
@@ -194,7 +194,7 @@ class NRTSI(nn.Module):
 
                     if dataset == "football":
                         gt_data = reshape_tensor(
-                            gt_data, rescale=False, n_features=n_features, dataset=dataset
+                            gt_data, upscale=False, n_features=n_features, dataset_type=dataset
                         ).flatten(2, 3)
                         imputations = sample_gauss(imputations, gt_data, gap=gap)
 
@@ -208,9 +208,9 @@ class NRTSI(nn.Module):
             mask = mask.flatten(2, 3)
 
             pred_ = reshape_tensor(
-                pred, rescale=True, n_features=n_features, dataset=dataset
+                pred, upscale=True, n_features=n_features, dataset_type=dataset
             )  # [bs, time, total_players * 2]
-            target_ = reshape_tensor(target, rescale=True, n_features=n_features, dataset=dataset)
+            target_ = reshape_tensor(target, upscale=True, n_features=n_features, dataset_type=dataset)
 
             ret["pos_dist"] = torch.norm(pred_ - target_, dim=-1).sum().item()
 
