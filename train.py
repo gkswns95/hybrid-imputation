@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import time
+from typing import Dict
 
 import numpy as np
 import torch
@@ -56,11 +57,16 @@ def hyperparams_str(epoch, hp):
 
 
 # For one epoch
-def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, print_every=50, train_args=None):
+def run_epoch(
+    model: nn.DataParallel,
+    loader: DataLoader,
+    optimizer: torch.optim.Adam,
+    train=True,
+    print_every=50,
+    train_args=None,
+) -> Dict[str, float]:
     # torch.autograd.set_detect_anomaly(True)
     model.train() if train else model.eval()
-
-    loader = train_loader if train else valid_loader
     n_batches = len(loader)
 
     # loss_keys = ["total"]
@@ -78,7 +84,7 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
     # loss_dict = {f"{k}_loss": [] for k in loss_keys if k != "pred"}
     # dist_dict = {f"{k}_dist": [] for k in pred_keys}
 
-    loss_dict = {"total_loss": [], "pred_dist": []}
+    loss_dict = {"missing_rate": [], "total_loss": [], "pred_dist": []}
     if model.module.params["model"] == "dbhp" and model.module.params["deriv_accum"]:
         loss_dict["dap_f_dist"] = []
         loss_dict["dap_b_dist"] = []
@@ -97,9 +103,9 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
                         ret = model.module.evaluate(data, device=default_device)
 
         if model.module.params["model"] == "nrtsi":
-            min_gap, max_gap, cur_lr, ta = train_args
             data = data[:2]
 
+            min_gap, max_gap, cur_lr, ta = train_args
             data.append(min_gap)
             data.append(max_gap)
 
@@ -111,7 +117,7 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
                     ret = model(data, model=model, teacher_forcing=ta, device=default_device)
 
         for k in loss_dict:
-            loss_dict[k] += [ret[k].item()]
+            loss_dict[k] += [ret[k]] if k == "missing_rate" else [ret[k].item()]
 
         # for k in dist_dict:
         #     dist_dict[k] += [ret[k].item()]
@@ -138,9 +144,9 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, train=False, 
 parser = argparse.ArgumentParser()
 
 parser.add_argument("-t", "--trial", type=int, required=True)
-parser.add_argument("--dataset", type=str, required=True, default="soccer", help="soccer, basketball, afootball")
+parser.add_argument("--dataset", type=str, required=True, help="soccer, basketball, afootball")
 parser.add_argument("--model", type=str, required=True, default="dbhp")
-parser.add_argument("--missing_pattern", type=str, required=False, default="camera", help="uniform, playerwise, camera")
+parser.add_argument("--missing_pattern", type=str, required=True, help="uniform, playerwise, camera, forecast")
 parser.add_argument("--missing_rate", type=float, required=False, default=0.5, help="proportion of missing frames")
 parser.add_argument("--n_features", type=int, required=False, default=2, help="num features")
 parser.add_argument("--window_size", type=int, required=False, default=200, help="for SportsDataset")
@@ -162,6 +168,7 @@ parser.add_argument("--cont", action="store_true", default=False, help="continue
 parser.add_argument("--best_loss", type=float, required=False, default=0, help="best test loss")
 parser.add_argument("--load_pretrained", type=int, default=0)
 parser.add_argument("--freeze_pretrained", action="store_true", default=0)
+
 args, _ = parser.parse_known_args()
 
 if __name__ == "__main__":
@@ -170,7 +177,6 @@ if __name__ == "__main__":
 
     # Parameters to save
     params = {
-        "trial": args.trial,
         "dataset": args.dataset,
         "model": args.model,
         "missing_pattern": args.missing_pattern,
@@ -311,8 +317,8 @@ if __name__ == "__main__":
     epochs_since_best = 0
     lr = max(args.start_lr, args.min_lr)
 
-    print(f"Training dataset size: {len(train_dataset)}")
-    print(f"Validation dataset size: {len(valid_dataset)}")
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Valid dataset size: {len(valid_dataset)}")
 
     # writer = SummaryWriter(f"runs/{params['model']}_trial({params['trial']})")
     for e in range(n_epochs):
@@ -352,10 +358,14 @@ if __name__ == "__main__":
         printlog(hyperparams_str(epoch, hyperparams))
         start_time = time.time()
 
-        train_losses = run_epoch(model, optimizer, train=True, print_every=print_every, train_args=train_args)
-        printlog("Train:\t" + loss_str(train_losses))
+        train_losses = run_epoch(model, train_loader, optimizer, print_every=print_every, train_args=train_args)
+        valid_losses = run_epoch(model, valid_loader, optimizer, train=False, train_args=train_args)
 
-        valid_losses = run_epoch(model, optimizer, train=False, train_args=train_args)
+        if e < 5:
+            print(f"Train missing rate: {round(train_losses['missing_rate'], 4)}")
+            print(f"Valid missing rate: {round(valid_losses['missing_rate'], 4)}")
+
+        printlog("Train:\t" + loss_str(train_losses))
         printlog("Valid:\t" + loss_str(valid_losses))
 
         # Write learning curve on tensorboard

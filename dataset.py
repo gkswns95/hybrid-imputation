@@ -15,7 +15,7 @@ class SportsDataset(Dataset):
         n_features=6,
         window_size=200,
         episode_min_len=100,
-        stride=5,
+        stride=0,
         normalize=False,
         flip_pitch=False,
     ):
@@ -37,6 +37,8 @@ class SportsDataset(Dataset):
         self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"][:n_features]
         self.n_features = n_features
         self.ws = window_size
+        stride = window_size if stride == 0 else stride
+
         self.flip_pitch = flip_pitch
 
         self.pad_value = -100

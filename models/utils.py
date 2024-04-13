@@ -34,15 +34,15 @@ def get_dataset_config(dataset):
     return players, ps
 
 
-def is_inside(polygon_vertices, point):
+def is_inside(polygon_vertices, player_pos):
     def cross(p1, p2, on_line_mask, counters):
         x1, y1 = p1[0], p1[1]  # [bs, time]
         x2, y2 = p2[0], p2[1]
-        players_x, players_y = point[..., 0], point[..., 1]  # [bs, time, n_players]
+        player_x, player_y = player_pos[..., 0], player_pos[..., 1]  # [bs, time, players]
 
         for p in range(n_players):
-            x_p = players_x[..., p]  # [bs, time]
-            y_p = players_y[..., p]
+            x_p = player_x[..., p]  # [bs, time]
+            y_p = player_y[..., p]
 
             # horizontal line
             condition1 = y1 - y2 == 0  # [bs, time]
@@ -87,7 +87,7 @@ def is_inside(polygon_vertices, point):
         return on_line_mask, counters
 
     # MAIN
-    bs, seq_len, n_players = point.shape[:3]
+    bs, seq_len, n_players = player_pos.shape[:3]
     on_line_mask = torch.zeros(bs, seq_len, n_players)
     counters = torch.zeros(bs, seq_len, n_players)
 
@@ -102,17 +102,23 @@ def is_inside(polygon_vertices, point):
     return missing_mask_np
 
 
-def generate_mask(data: Dict[str, torch.Tensor], sports="soccer", mode="camera", missing_rate=0.8) -> np.ndarray:
-    assert mode in ["uniform", "playerwise", "camera"]
+def generate_mask(
+    data: Dict[str, torch.Tensor],
+    sports="soccer",
+    mode="camera",
+    missing_rate=0.8,
+) -> Tuple[np.ndarray, float]:
+    assert sports in ["soccer", "basketball", "afootball"]
+    assert mode in ["uniform", "playerwise", "camera", "forecast"]
 
     n_players, _ = get_dataset_config(sports)
     player_data = data["target"]  # [bs, time, players * feats]
 
     # compute the length of each sequence without padding
     if player_data.is_cuda:
-        valid_lens = np.array(player_data.cpu()[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
+        valid_frames = np.array(player_data.cpu()[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
     else:
-        valid_lens = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
+        valid_frames = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
 
     if mode == "uniform":  # assert the first and the last frames are not missing
         if sports == "afootball":
@@ -124,34 +130,41 @@ def generate_mask(data: Dict[str, torch.Tensor], sports="soccer", mode="camera",
 
         else:
             mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
-            missing_lens = (valid_lens * missing_rate).astype(int)  # [bs], number of missing values per player
-            start_idxs = np.random.randint(1, valid_lens - missing_len - 1)
+            missing_frames = (valid_frames * missing_rate).astype(int)  # [bs], number of missing values per player
+            start_idxs = np.random.randint(1, valid_frames - missing_len - 1)
             end_idxs = start_idxs + missing_len
             for i in range(mask.shape[0]):
                 mask[i, start_idxs[i] : end_idxs[i]] = 0
 
+    elif mode == "forecast":
+        mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        missing_frames = (valid_frames * missing_rate).astype(int)  # [bs], number of missing values per player
+        start_idxs = valid_frames - missing_frames
+        for i in range(mask.shape[0]):
+            mask[i, start_idxs[i] : valid_frames[i]] = 0
+
     elif mode == "playerwise":  # assert the first and the last frames are not missing
         mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
-        missing_lens = np.zeros((mask.shape[0], n_players)).astype(int)  # [bs, players]
+        missing_frames = np.zeros((mask.shape[0], n_players)).astype(int)  # [bs, players]
         # numbers of player-wise missing values (will increase during the while-loops)
 
-        residue = (valid_lens * n_players * missing_rate).astype(int)  # [bs]
+        residue = (valid_frames * n_players * missing_rate).astype(int)  # [bs]
         # total remaining number of missing values (will decrease during the while-loops)
-        max_shares = np.tile(valid_lens - 10, (n_players, 1)).T  # [bs, players]
+        max_shares = np.tile(valid_frames - 10, (n_players, 1)).T  # [bs, players]
         assert np.all(residue < max_shares.sum(axis=-1))
 
         for i in range(mask.shape[0]):
             while residue[i] > 0:  # iteratively distribute residue to the players with available slots
-                slots = missing_lens[i] < max_shares[i]  # [players]
+                slots = missing_frames[i] < max_shares[i]  # [players]
                 breakpoints = np.random.choice(residue[i] + 1, slots.astype(int).sum() - 1, replace=True)
                 shares = np.diff(np.sort(breakpoints.tolist() + [0, residue[i]]))  # [players]
 
-                missing_lens[i, ~slots] = max_shares[i, ~slots]
-                missing_lens[i, slots] += shares
-                residue[i] = np.clip(missing_lens[i] - max_shares[i], 0, None).sum()  # clip the overflowing shares
+                missing_frames[i, ~slots] = max_shares[i, ~slots]
+                missing_frames[i, slots] += shares
+                residue[i] = np.clip(missing_frames[i] - max_shares[i], 0, None).sum()  # clip the overflowing shares
 
-        start_idxs = np.random.randint(1, max_shares - missing_lens + 2)  # [bs, players]
-        end_idxs = start_idxs + missing_lens  # [bs, players]
+        start_idxs = np.random.randint(1, max_shares - missing_frames + 2)  # [bs, players]
+        end_idxs = start_idxs + missing_frames  # [bs, players]
 
         for i in range(mask.shape[0]):
             for p in range(n_players):
@@ -159,8 +172,8 @@ def generate_mask(data: Dict[str, torch.Tensor], sports="soccer", mode="camera",
 
     elif mode == "camera":  # assert the first and the last five frames are not missing
         player_data, ball_data = data["target"].clone().cpu(), data["ball"].clone().cpu()
-        player_xy = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
-        ball_xy = normalize_tensor(ball_data, mode="upscale", dataset=sports)
+        player_pos = reshape_tensor(player_data, rescale=True, dataset=sports)  # [bs, time, players, 2]
+        ball_pos = normalize_tensor(ball_data, mode="upscale", dataset=sports)
 
         if player_data.is_cuda:
             is_pad = np.array(player_data.cpu()[..., :1] == -100).astype(int)
@@ -169,15 +182,17 @@ def generate_mask(data: Dict[str, torch.Tensor], sports="soccer", mode="camera",
 
         # check whether the camera view covers each player's position or not
         # is_inside = 1 for on-screen players and 0 for off-screen players
-        camera_vertices = compute_camera_coverage(ball_xy)
-        mask = is_inside(camera_vertices, player_xy)  # [bs, time, players]
+        camera_vertices = compute_camera_coverage(ball_pos)
+        mask = is_inside(camera_vertices, player_pos)  # [bs, time, players]
         mask = (1 - is_pad) * mask + is_pad
 
         mask[:, :5, :] = 1
         for i in range(mask.shape[0]):
-            mask[i, valid_lens[i] - 5 :] = 1
+            mask[i, valid_frames[i] - 5 :] = 1
 
-    return mask
+        missing_rate = ((1 - is_pad) * (1 - mask)).sum() / ((1 - is_pad).sum() * n_players)
+
+    return mask, missing_rate  # [bs, time, players]
 
 
 def compute_deltas(mask: np.ndarray) -> Tuple[np.ndarray]:
@@ -194,7 +209,7 @@ def compute_deltas(mask: np.ndarray) -> Tuple[np.ndarray]:
 
 def time_interval(mask, time_gap, direction="f", mode="block"):
     if direction == "b":
-        mask = np.flip(deepcopy(mask), axis=[0])  # [bs, time, n_players]
+        mask = np.flip(deepcopy(mask), axis=[0])  # [bs, time, players]
 
     deltas = np.zeros(mask.shape)
     if mode == "block":
@@ -234,16 +249,16 @@ def random_permutation(input: torch.Tensor, players=6, permutations=None) -> tor
 #     - tensor : [bs, seq_len, feat_dim]
 #     '''
 #     bs, seq_len = tensor.shape[:2]
-#     tensor_ = tensor.reshape(bs, seq_len, n_players, -1) # [bs, seq_len, n_agents, x_dim]
+#     tensor_ = tensor.reshape(bs, seq_len, n_players, -1) # [bs, seq_len, players, x_dim]
 
-#     x_tensor = tensor_[..., 0].unsqueeze(-1) # [bs, seq_len, n_agents, 1]
+#     x_tensor = tensor_[..., 0].unsqueeze(-1) # [bs, seq_len, players, 1]
 #     y_tensor = tensor_[..., 1].unsqueeze(-1)
-#     xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1) # [bs, seq_len, n_agents, 2]
-#     xy_sum_tensor = torch.sum(xy_tensor, dim=-1) # [bs, seq_len, n_agents]
+#     xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1) # [bs, seq_len, players, 2]
+#     xy_sum_tensor = torch.sum(xy_tensor, dim=-1) # [bs, seq_len, players]
 
 #     sorted_tensor = tensor_.clone()
 #     for batch in range(bs):
-#         sort_indices = torch.argsort(xy_sum_tensor[batch, 0], dim=0) # [n_agents]
+#         sort_indices = torch.argsort(xy_sum_tensor[batch, 0], dim=0) # [players]
 #         sorted_tensor[batch] = tensor_[batch, :, sort_indices]
 
 #     return sorted_tensor.flatten(2,3) # [bs, seq_len, feat_dim]
@@ -254,19 +269,19 @@ def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mo
     - tensor : [bs, seq_len, feat_dim]
     """
     bs, seq_len = tensor.shape[:2]
-    tensor_ = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, seq_len, n_agents, x_dim]
+    tensor_ = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, seq_len, players, x_dim]
 
-    x_tensor = tensor_[..., 0].unsqueeze(-1)  # [bs, seq_len, n_agents, 1]
+    x_tensor = tensor_[..., 0].unsqueeze(-1)  # [bs, seq_len, players, 1]
     y_tensor = tensor_[..., 1].unsqueeze(-1)
 
-    xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1)  # [bs, seq_len, n_agents, 2]
+    xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1)  # [bs, seq_len, players, 2]
     if mode == "sort":
-        xy_sum_tensor = torch.sum(xy_tensor, dim=-1)  # [bs, seq_len, n_agents]
+        xy_sum_tensor = torch.sum(xy_tensor, dim=-1)  # [bs, seq_len, players]
 
         sorted_tensor = tensor_.clone()
         sort_idxs_tensor = torch.zeros(bs, n_players, dtype=int)
         for batch in range(bs):
-            sorted_idxs = torch.argsort(xy_sum_tensor[batch, 0], dim=0)  # [n_agents]
+            sorted_idxs = torch.argsort(xy_sum_tensor[batch, 0], dim=0)  # [players]
 
             sorted_tensor[batch] = tensor_[batch, :, sorted_idxs]
             sort_idxs_tensor[batch] = sorted_idxs
@@ -275,7 +290,7 @@ def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mo
     else:  # Restore sorted tensor
         assert sort_idxs_tensor is not None
 
-        restored_tensor = tensor_.clone()  # [bs, seq_len, n_agents, x_dim]
+        restored_tensor = tensor_.clone()  # [bs, seq_len, players, x_dim]
         for batch in range(bs):
             restore_indices = torch.argsort(sort_idxs_tensor[batch])
             restored_tensor[batch] = tensor_[batch, :, restore_indices, :]
@@ -376,11 +391,11 @@ def calc_auc_score(target, pred):
 
 def step_changes_path_len_err(pred_traces, target_traces, mask, dataset="soccer"):
     """
-    pred_traces : [time, n_players * 2]
-    target_traces : [time, n_players * 2]
-    mask : [time, n_players * 2]
+    pred_traces : [time, players * 2]
+    target_traces : [time, players * 2]
+    mask : [time, players * 2]
     """
-    pred_traces = reshape_tensor(pred_traces, dataset=dataset)  # [time, n_players, 2]
+    pred_traces = reshape_tensor(pred_traces, dataset=dataset)  # [time, players, 2]
     target_traces = reshape_tensor(target_traces, dataset=dataset)
     mask = reshape_tensor(mask, dataset=dataset)
 
@@ -389,26 +404,26 @@ def step_changes_path_len_err(pred_traces, target_traces, mask, dataset="soccer"
 
     pred_traces = mask * target_traces + (1 - mask) * pred_traces
 
-    step_size = torch.norm(pred_traces[1:] - pred_traces[:-1], dim=-1)  # [time, n_players]
-    pred_change_of_step_size = step_size.std(0)  # [n_players]
+    step_size = torch.norm(pred_traces[1:] - pred_traces[:-1], dim=-1)  # [time, players]
+    pred_sc = step_size.std(0)  # [players]
 
     pred_path_length = step_size.sum(0)
 
-    step_size = torch.norm(target_traces[1:] - target_traces[:-1], dim=-1)  # [time, n_players]
-    target_change_of_step_size = step_size.std(0)  # [n_players]
+    step_size = torch.norm(target_traces[1:] - target_traces[:-1], dim=-1)  # [time, players]
+    target_sc = step_size.std(0)  # [players]
     target_path_length = step_size.sum(0)
 
-    change_of_step_size_err = torch.abs(pred_change_of_step_size - target_change_of_step_size).sum().item()
+    sc_error = torch.abs(pred_sc - target_sc).sum().item()
     path_len_err = torch.abs(pred_path_length - target_path_length).sum().item()
 
-    return change_of_step_size_err, path_len_err
+    return sc_error, path_len_err
 
 
 def calc_speed_err(pred_traces, target_traces, mask, dataset="soccer"):
     """
-    pred_traces : [time, n_players * 2]
-    target_traces : [time, n_players * 2]
-    mask : [time, n_players * 2]
+    pred_traces : [time, players * 2]
+    target_traces : [time, players * 2]
+    mask : [time, players * 2]
     """
     pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset=dataset)
     target_traces = normalize_tensor(target_traces, mode="upscale", dataset=dataset)
@@ -430,7 +445,7 @@ def calc_speed_err(pred_traces, target_traces, mask, dataset="soccer"):
 
 def calc_statistic_metrics(pred_traces, target_traces, mask, ret, imputer, dataset="soccer"):
     """
-    pred_traces : [time, x_dim(n_players * n_features)]
+    pred_traces : [time, x_dim(players * n_features)]
     target_traces : [time, x_dim]
     mask : [time, x_dim]
     """
@@ -455,10 +470,10 @@ def calc_statistic_metrics(pred_traces, target_traces, mask, ret, imputer, datas
         ret[f"{imputer}_pred"] = interp.clone()
 
     speed_err = calc_speed_err(interp.clone(), target_traces_, mask_, dataset)
-    total_change_of_step_size, path_length = step_changes_path_len_err(interp, target_traces_, mask_, dataset)
+    total_sc, path_length = step_changes_path_len_err(interp, target_traces_, mask_, dataset)
 
     ret[f"{imputer}_speed"] = speed_err
-    ret[f"{imputer}_change_of_step_size"] = total_change_of_step_size
+    ret[f"{imputer}_step_change"] = total_sc
     ret[f"{imputer}_path_length"] = path_length
 
     return ret
@@ -538,7 +553,7 @@ def load_pretrained_model(model, params, freeze=False, trial_num=301):
     return model
 
 
-def compute_camera_coverage(ball_xy, camera_info=(0, -20, 20, 30), pitch_size=(108, 72)):
+def compute_camera_coverage(ball_pos: torch.Tensor, camera_info=(0, -20, 20, 30), pitch_size=(108, 72)):
     # Camera info
     camera_x = camera_info[0]
     camera_y = camera_info[1]
@@ -554,12 +569,12 @@ def compute_camera_coverage(ball_xy, camera_info=(0, -20, 20, 30), pitch_size=(1
     camera_fov_x = math.radians(camera_fov)
     camera_fov_y = math.radians(camera_fov / camera_ratio[0] * camera_ratio[1])
 
-    ball_right = ball_xy[..., 0] > pitch_size[0] / 2
+    ball_right = ball_pos[..., 0] > pitch_size[0] / 2
 
     # Camera-ball angle
-    ball_camera_dist = torch.norm(ball_xy - camera_xy, dim=-1)  # [bs, time]
+    ball_camera_dist = torch.norm(ball_pos - camera_xy, dim=-1)  # [bs, time]
     camera_ball_angle = math.pi / 2 - np.arctan(
-        abs(camera_xy[1] - ball_xy[..., 1]) / abs(camera_xy[0] - ball_xy[..., 0])
+        abs(camera_xy[1] - ball_pos[..., 1]) / abs(camera_xy[0] - ball_pos[..., 0])
     )
     camera_ball_angle_y = np.arctan(camera_height / ball_camera_dist)
 
@@ -591,8 +606,8 @@ def compute_camera_coverage(ball_xy, camera_info=(0, -20, 20, 30), pitch_size=(1
     front_ratio = front_ratio.unsqueeze(-1)
     rear_ratio = rear_ratio.unsqueeze(-1)
 
-    close_fov_center_point = ball_xy * (front_ratio) + camera_xy * (1 - front_ratio)
-    far_fov_center_point = ball_xy * rear_ratio + camera_xy * (-rear_ratio + 1)
+    close_fov_center_point = ball_pos * (front_ratio) + camera_xy * (1 - front_ratio)
+    far_fov_center_point = ball_pos * rear_ratio + camera_xy * (-rear_ratio + 1)
 
     poly_loc0 = (
         far_fov_center_point[..., 0] - ball_fov_far_dist_x,
@@ -632,7 +647,7 @@ def print_helper(ret, model_keys, trial=-1, dataset="soccer", save_txt=False):
             continue
         elif "travel" in key:
             print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
-        elif "change_of_step_size" in key:
+        elif "step_change" in key:
             print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
         elif "path_length" in key:
             print(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)}')
@@ -646,7 +661,7 @@ def print_helper(ret, model_keys, trial=-1, dataset="soccer", save_txt=False):
                 continue
             elif "travel" in key:
                 f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')
-            elif "change_of_step_size" in key:
+            elif "step_change" in key:
                 f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')
             elif "path_length" in key:
                 f.write(f'{key} : {round(ret[key] / (ret["n_frames"] * n_players), 8)} \n')

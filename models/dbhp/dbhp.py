@@ -59,7 +59,7 @@ class DBHP(nn.Module):
 
         ret = {"target": player_data, "ball": ball_data}
 
-        mask = generate_mask(
+        mask, missing_rate = generate_mask(
             data=ret,
             sports=self.params["dataset"],
             mode=self.params["missing_pattern"],
@@ -91,6 +91,7 @@ class DBHP(nn.Module):
             mask, deltas_f, deltas_b = mask.to(device), deltas_f.to(device), deltas_b.to(device)
 
         ret["mask"] = mask
+        ret["missing_rate"] = missing_rate
         ret["input"] = player_data * mask
         ret["deltas_f"] = deltas_f
         ret["deltas_b"] = deltas_b
