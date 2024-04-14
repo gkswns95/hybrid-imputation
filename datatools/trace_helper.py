@@ -208,12 +208,19 @@ class TraceHelper:
             else:
                 ret["lambdas"] = torch.zeros(seq_len, (model.params["team_size"] * 2) * 3)
 
+        # if model.params["missing_pattern"] == "camera":
+        #     n_windows = 1
+
         if player_traces.shape[1] % window_size < min_window_size:
             n_windows = player_traces.shape[1] // window_size
         else:
             n_windows = player_traces.shape[1] // window_size + 1
 
         for i in range(n_windows):
+            # if model.params["missing_pattern"] == "camera":
+            #     i_from = 0
+            #     i_to = player_traces.shape[1]
+
             i_from = window_size * i
             i_to = window_size * (i + 1) if i < n_windows - 1 else player_traces.shape[1]
 
@@ -328,13 +335,13 @@ class TraceHelper:
             phase_gks = SportsDataset.detect_goalkeepers(phase_traces)
             team1_code, team2_code = phase_gks[0][0], phase_gks[1][0]
 
-            ep_player_cols = phase_traces[player_cols].dropna(axis=1).columns
-            team1_cols = [c for c in ep_player_cols if c.startswith(team1_code)]
-            team2_cols = [c for c in ep_player_cols if c.startswith(team2_code)]
+            phase_player_cols = phase_traces[player_cols].dropna(axis=1).columns
+            team1_cols = [c for c in phase_player_cols if c.startswith(team1_code)]
+            team2_cols = [c for c in phase_player_cols if c.startswith(team2_code)]
             ball_cols = ["ball_x", "ball_y"]
 
             # reorder teams so that the left team comes first
-            ep_player_cols = team1_cols + team2_cols
+            phase_player_cols = team1_cols + team2_cols
 
             if min(len(team1_cols), len(team2_cols)) < model.params["n_features"] * model.params["team_size"]:
                 continue
@@ -345,7 +352,7 @@ class TraceHelper:
                 if len(ep_traces) < min_episode_size:
                     continue
 
-                ep_player_traces = torch.FloatTensor(ep_traces[ep_player_cols].values)
+                ep_player_traces = torch.FloatTensor(ep_traces[phase_player_cols].values)
                 ep_ball_traces = torch.FloatTensor(ep_traces[ball_cols].values)
 
                 with torch.no_grad():
@@ -362,15 +369,15 @@ class TraceHelper:
                     )
 
                 # Update resulting DataFrames
-                pos_cols = [c for c in ep_player_cols if c.endswith("_x") or c.endswith("_y")]
+                pos_cols = [c for c in phase_player_cols if c.endswith("_x") or c.endswith("_y")]
                 for k in pred_keys:
                     if k in ["pred", "target", "mask"]:
-                        ret[k].loc[ep_traces.index, ep_player_cols] = np.array(ep_ret[k])
+                        ret[k].loc[ep_traces.index, phase_player_cols] = np.array(ep_ret[k])
                     else:
                         ret[k].loc[ep_traces.index, pos_cols] = np.array(ep_ret[k])
 
                 if model_type == "dbhp" and model.params["dynamic_hybrid"]:
-                    ep_players = [c[:-2] for c in ep_player_cols if "_x" in c]
+                    ep_players = [c[:-2] for c in phase_player_cols if "_x" in c]
                     lambda_cols = [f"{p}{w}" for p in ep_players for w in ["_w0", "_w1", "_w2"]]
                     ret["lambdas"].loc[ep_traces.index, lambda_cols] = np.array(ep_ret["lambdas"])
 

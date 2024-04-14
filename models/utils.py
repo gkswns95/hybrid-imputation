@@ -151,7 +151,7 @@ def generate_mask(
         residue = (valid_frames * n_players * missing_rate).astype(int)  # [bs]
         # total remaining number of missing values (will decrease during the while-loops)
 
-        max_shares = np.maximum(valid_frames - 10, np.min(valid_frames) * 0.9).round().astype(int)
+        max_shares = np.ceil(np.maximum(valid_frames - 10, np.min(valid_frames) * 0.9)).astype(int)
         max_shares = np.tile(max_shares, (n_players, 1)).T  # [bs, players]
         # maximum number of missing values for each player
 
@@ -232,74 +232,52 @@ def time_interval(mask, time_gap, direction="f", mode="block"):
     return torch.tensor(deltas, dtype=torch.float32)
 
 
-def random_permutation(input: torch.Tensor, players=6, permutations=None) -> torch.Tensor:
-    bs, seq_len = input.shape[:2]
-    input_ = input.reshape(bs, seq_len, players, -1)  # [bs, time, players, feat_dim]
+def shuffle_players(tensor: torch.Tensor, n_players=22, shuffled_idxs=None):
+    bs, seq_len = tensor.shape[:2]
+    tensor = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, time, players, feats]
 
-    permuted_input = input_.clone()
-    permutations = np.zeros((bs, players))
+    shuffled_tensor = tensor.clone()
+    shuffled_idxs = torch.zeros((bs, n_players))
+
     for batch in range(bs):
         # rand_idx = np.random.permutation(players)
-        rand_idx = [0, 1, 2, 3, 4, 5]
-        random.shuffle(rand_idx)
-        permuted_input[batch, :] = input_[batch, :, rand_idx]
-        permutations[batch] = rand_idx
+        rand_idxs = torch.randperm(n_players)
+        shuffled_tensor[batch, :] = tensor[batch, :, rand_idxs]
+        shuffled_idxs[batch] = rand_idxs
 
-    return permuted_input.flatten(2, 3)
-
-
-# def xy_sort_tensor(tensor, n_players=22):
-#     '''
-#     - tensor : [bs, time, feat_dim]
-#     '''
-#     bs, seq_len = tensor.shape[:2]
-#     tensor_ = tensor.reshape(bs, seq_len, n_players, -1) # [bs, time, players, x_dim]
-
-#     x_tensor = tensor_[..., 0].unsqueeze(-1) # [bs, time, players, 1]
-#     y_tensor = tensor_[..., 1].unsqueeze(-1)
-#     xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1) # [bs, time, players, 2]
-#     xy_sum_tensor = torch.sum(xy_tensor, dim=-1) # [bs, time, players]
-
-#     sorted_tensor = tensor_.clone()
-#     for batch in range(bs):
-#         sort_indices = torch.argsort(xy_sum_tensor[batch, 0], dim=0) # [players]
-#         sorted_tensor[batch] = tensor_[batch, :, sort_indices]
-
-#     return sorted_tensor.flatten(2,3) # [bs, time, feat_dim]
+    return shuffled_tensor.flatten(2, 3), shuffled_idxs  # [bs, time, players * feats], [bs, players]
 
 
-def xy_sort_tensor(tensor: torch.Tensor, sort_idxs_tensor=None, n_players=22, mode="sort"):
-    """
-    - tensor : [bs, time, feats]
-    """
+def sort_players(tensor: torch.Tensor, orig_idxs: torch.LongTensor = None, n_players=22, mode="sort"):
     bs, seq_len = tensor.shape[:2]
-    tensor_ = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, time, players, x_dim]
+    tensor = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, time, players, feats]
 
-    x_tensor = tensor_[..., 0].unsqueeze(-1)  # [bs, time, players, 1]
-    y_tensor = tensor_[..., 1].unsqueeze(-1)
+    x = tensor[..., 0:1]  # [bs, time, players, 1]
+    y = tensor[..., 1:2]
+    xy = torch.cat([x, y], dim=-1)  # [bs, time, players, 2]
 
-    xy_tensor = torch.cat([x_tensor, y_tensor], dim=-1)  # [bs, time, players, 2]
     if mode == "sort":
-        xy_sum_tensor = torch.sum(xy_tensor, dim=-1)  # [bs, time, players]
+        x_plus_y = torch.sum(xy, dim=-1)  # [bs, time, players]
 
-        sorted_tensor = tensor_.clone()
-        sort_idxs_tensor = torch.zeros(bs, n_players, dtype=int)
+        sorted_tensor = tensor.clone()
+        sorted_idxs = torch.zeros(bs, n_players, dtype=int)
+
         for batch in range(bs):
-            sorted_idxs = torch.argsort(xy_sum_tensor[batch, 0], dim=0)  # [players]
+            batch_sorted_idxs = torch.argsort(x_plus_y[batch].mean(axis=0), dim=0)  # [players]
+            sorted_tensor[batch] = tensor[batch, :, batch_sorted_idxs]
+            sorted_idxs[batch] = batch_sorted_idxs
 
-            sorted_tensor[batch] = tensor_[batch, :, sorted_idxs]
-            sort_idxs_tensor[batch] = sorted_idxs
+        return sorted_tensor.flatten(2, 3), sorted_idxs  # [bs, time, players * feats], [bs, players]
 
-        return sorted_tensor.flatten(2, 3), sort_idxs_tensor  # [bs, time, feat_dim]
     else:  # Restore sorted tensor
-        assert sort_idxs_tensor is not None
+        assert orig_idxs is not None
+        restored_tensor = tensor.clone()  # [bs, time, players, x]
 
-        restored_tensor = tensor_.clone()  # [bs, time, players, x_dim]
         for batch in range(bs):
-            restore_indices = torch.argsort(sort_idxs_tensor[batch])
-            restored_tensor[batch] = tensor_[batch, :, restore_indices, :]
+            batch_orig_idxs = torch.argsort(orig_idxs[batch])
+            restored_tensor[batch] = tensor[batch, :, batch_orig_idxs, :]
 
-        return restored_tensor.flatten(2, 3)  # [bs, time, feat_dim]
+        return restored_tensor.flatten(2, 3)  # [bs, time, players * feats]
 
 
 def num_trainable_params(model):
@@ -373,9 +351,9 @@ def calc_auc_score(target, pred):
 
 
 def calc_pos_error(
-    pred_tensor: torch.Tensor,
-    target_tensor: torch.Tensor,
-    mask_tensor: torch.Tensor,
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
     n_features=None,
     aggfunc="mean",
     dataset="soccer",
@@ -388,49 +366,49 @@ def calc_pos_error(
     mask: [time, players * _] if reshape else [time, players, 2]
     """
     if reshape:
-        pred_xy = reshape_tensor(pred_tensor, upscale=upscale, n_features=n_features, dataset_type=dataset)
-        target_xy = reshape_tensor(target_tensor, upscale=upscale, n_features=n_features, dataset_type=dataset)
-        mask_xy = reshape_tensor(mask_tensor, n_features=n_features, dataset_type=dataset)
+        pred_pos = reshape_tensor(pred, upscale=upscale, n_features=n_features, dataset_type=dataset)
+        target_pos = reshape_tensor(target, upscale=upscale, n_features=n_features, dataset_type=dataset)
+        mask_pos = reshape_tensor(mask, n_features=n_features, dataset_type=dataset)
     else:
-        pred_xy = pred_tensor[..., :2]
-        target_xy = target_tensor[..., :2]
-        mask_xy = mask_tensor[..., :2]
+        pred_pos = pred[..., :2]
+        target_pos = target[..., :2]
+        mask_pos = mask[..., :2]
 
     if aggfunc == "mean":
-        return (torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum() / ((1 - mask_xy).sum() / 2)).item()
+        return (torch.norm((pred_pos - target_pos) * (1 - mask_pos), dim=-1).sum() / ((1 - mask_pos).sum() / 2)).item()
     elif aggfunc == "tensor":
-        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1)
+        return torch.norm((pred_pos - target_pos) * (1 - mask_pos), dim=-1)
     else:  # if aggfunc == "sum"
-        return torch.norm((pred_xy - target_xy) * (1 - mask_xy), dim=-1).sum().item()
+        return torch.norm((pred_pos - target_pos) * (1 - mask_pos), dim=-1).sum().item()
 
 
-def calc_speed_error(pred_traces, target_traces, mask, dataset_type="soccer", upscale=False):
+def calc_speed_error(pred, target, mask, dataset_type="soccer", upscale=False):
     """
     pred_traces: [time, players, 2]
     target_traces: [time, players, 2]
     mask: [time, players, 2]
     """
     if upscale:
-        pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset_type=dataset_type)
-        target_traces = normalize_tensor(target_traces, mode="upscale", dataset_type=dataset_type)
+        pred = normalize_tensor(pred, mode="upscale", dataset_type=dataset_type)
+        target = normalize_tensor(target, mode="upscale", dataset_type=dataset_type)
 
-    pred_traces = mask * target_traces + (1 - mask) * pred_traces
+    pred = mask * target + (1 - mask) * pred
 
-    vx_diff = torch.diff(pred_traces[..., 0::2], dim=0) / 0.1
-    vy_diff = torch.diff(pred_traces[..., 1::2], dim=0) / 0.1
+    vx_diff = torch.diff(pred[..., 0::2], dim=0) / 0.1
+    vy_diff = torch.diff(pred[..., 1::2], dim=0) / 0.1
     pred_speed = torch.sqrt(vx_diff**2 + vy_diff**2)  # [time - 1, players]
 
-    vx_diff = torch.diff(target_traces[..., 0::2], dim=0) / 0.1
-    vy_diff = torch.diff(target_traces[..., 1::2], dim=0) / 0.1
+    vx_diff = torch.diff(target[..., 0::2], dim=0) / 0.1
+    vy_diff = torch.diff(target[..., 1::2], dim=0) / 0.1
     target_speed = torch.sqrt(vx_diff**2 + vy_diff**2)  # [time - 1, players]
 
     return torch.abs(pred_speed - target_speed).sum().item()
 
 
 def calc_step_change_and_path_length_errors(
-    pred_traces: torch.Tensor,
-    target_traces: torch.Tensor,
-    mask: torch.Tensor,
+    pred_pos: torch.Tensor,
+    target_pos: torch.Tensor,
+    mask_pos: torch.Tensor,
     dataset_type="soccer",
     reshape=False,
     upscale=False,
@@ -441,26 +419,26 @@ def calc_step_change_and_path_length_errors(
     mask: [time, players * 2] if reshape else [time, players, 2]
     """
     if reshape:
-        pred_traces = reshape_tensor(pred_traces, dataset_type=dataset_type)  # [time, players, 2]
-        target_traces = reshape_tensor(target_traces, dataset_type=dataset_type)
-        mask = reshape_tensor(mask, dataset_type=dataset_type)
+        pred_pos = reshape_tensor(pred_pos, dataset_type=dataset_type)  # [time, players, 2]
+        target_pos = reshape_tensor(target_pos, dataset_type=dataset_type)
+        mask_pos = reshape_tensor(mask_pos, dataset_type=dataset_type)
 
     if upscale:
-        pred_traces = normalize_tensor(pred_traces, mode="upscale", dataset_type=dataset_type)
-        target_traces = normalize_tensor(target_traces, mode="upscale", dataset_type=dataset_type)
+        pred_pos = normalize_tensor(pred_pos, mode="upscale", dataset_type=dataset_type)  # [time, players, 2]
+        target_pos = normalize_tensor(target_pos, mode="upscale", dataset_type=dataset_type)
 
-    pred_traces = mask * target_traces + (1 - mask) * pred_traces
+    pred_pos = mask_pos * target_pos + (1 - mask_pos) * pred_pos
 
-    step_size = torch.norm(pred_traces[1:] - pred_traces[:-1], dim=-1)  # [time, players]
-    pred_sc = step_size.std(0)  # [players]
-    pred_pl = step_size.sum(0)
+    step_size = torch.norm(pred_pos[1:] - pred_pos[:-1], dim=-1)  # [time, players]
+    pred_speed = (step_size / 0.1).std(0)  # [players]
+    pred_dist = step_size.sum(0)
 
-    step_size = torch.norm(target_traces[1:] - target_traces[:-1], dim=-1)  # [time, players]
-    target_sc = step_size.std(0)  # [players]
-    target_pl = step_size.sum(0)
+    step_size = torch.norm(target_pos[1:] - target_pos[:-1], dim=-1)  # [time, players]
+    target_speed = (step_size / 0.1).std(0)  # [players]
+    target_dist = step_size.sum(0)
 
-    sc_error = torch.abs(pred_sc - target_sc).sum().item()
-    pl_error = torch.abs(pred_pl - target_pl).sum().item()
+    sc_error = torch.abs(pred_speed - target_speed).sum().item()
+    pl_error = (torch.abs(pred_dist - target_dist) / target_dist).sum().item()
 
     return sc_error, pl_error
 

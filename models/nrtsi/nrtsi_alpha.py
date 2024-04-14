@@ -60,7 +60,7 @@ class NRTSI(nn.Module):
             target_data = input_data.clone()
         else:
             if dataset == "football":  # randomly permute player order for NFL dataset.
-                data[0], sort_indices = random_permutation(data[0], total_players)
+                data[0], sort_indices = shuffle_players(data[0], total_players)
                 data[1] = data[0].clone()
             input_data = data[0]  # [bs, time, x_dim]
             target_data = data[1]

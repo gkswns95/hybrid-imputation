@@ -390,7 +390,7 @@ class NFLDataHelper(TraceHelper):
             data = exp_data[ind]
 
             # Randomly permute player order for nfl
-            data, _ = random_permutation(data, 6)
+            data, _ = shuffle_players(data, 6)
 
             data = data.to(device)
             ground_truth = data.clone()

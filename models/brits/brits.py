@@ -39,11 +39,11 @@ class BRITS(nn.Module):
         dataset = self.params["dataset"]
 
         if self.params["xy_sort"]:
-            input_data, sort_idxs = xy_sort_tensor(data[0], n_players=total_players)  # [bs, time, x_dim]
+            input_data, sort_idxs = sort_players(data[0], n_players=total_players)  # [bs, time, x_dim]
             target_data = input_data.clone()
         else:
             if dataset == "football":  # Randomly permute player order for NFL dataset.
-                data[0] = random_permutation(data[0], total_players)
+                data[0] = shuffle_players(data[0], total_players)
                 data[1] = data[0].clone()
             input_data = data[0]  # [bs, time, x_dim]
             target_data = data[1]
@@ -86,9 +86,9 @@ class BRITS(nn.Module):
         ret = self.merge_ret(ret_f, ret_b, mode)
 
         if self.params["xy_sort"]:
-            ret["pred"] = xy_sort_tensor(ret["pred"], sort_idxs, total_players, mode="restore")
-            ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, total_players, mode="restore")
-            ret["mask"] = xy_sort_tensor(ret["mask"], sort_idxs, total_players, mode="restore")
+            ret["pred"] = sort_players(ret["pred"], sort_idxs, total_players, mode="restore")
+            ret["target"] = sort_players(ret["target"], sort_idxs, total_players, mode="restore")
+            ret["mask"] = sort_players(ret["mask"], sort_idxs, total_players, mode="restore")
 
         return ret
 

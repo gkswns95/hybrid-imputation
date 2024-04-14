@@ -19,45 +19,44 @@ def deriv_accum_pred(data: Dict[str, torch.Tensor], use_accel=False, fb="f", dat
         ps = (1, 1)
 
     scale_tensor = torch.FloatTensor(ps).to(data["pos_pred"].device)
-    m = data["pos_mask"].flatten(0, 1)  # [bs * players, time, 2]
+    mask = data["pos_mask"].flatten(0, 1)  # [bs * players, time, 2]
     dp_pos = data["pos_pred"].flatten(0, 1) * scale_tensor
     dp_vel = data["vel_pred"].flatten(0, 1)
-
     if use_accel:
-        dp_accel = data["cartesian_accel_pred"].flatten(0, 1)
+        dp_accel = data["accel_pred"].flatten(0, 1)
 
         if fb == "f":
             va = (dp_vel * 0.1 + dp_accel * 0.01).roll(1, dims=1)  # [bs * players, time, 2]
-            cumsum_va = ((1 - m) * va).cumsum(axis=1)
-            cumsum_va_by_segment = (1 - m) * (cumsum_va - ffill(m * cumsum_va))
-            dap_pos = m * dp_pos + (1 - m) * (ffill(m * dp_pos) + cumsum_va_by_segment)
+            cumsum_va = ((1 - mask) * va).cumsum(axis=1)
+            cumsum_va_by_segment = (1 - mask) * (cumsum_va - ffill(mask * cumsum_va))
+            dap_pos = mask * dp_pos + (1 - mask) * (ffill(mask * dp_pos) + cumsum_va_by_segment)
 
         else:
             dp_pos = torch.flip(dp_pos, dims=(1,))  # [bs * players, time, 2]
             dp_vel = torch.flip(dp_vel, dims=(1,)).roll(2, dims=1)
             dp_accel = torch.flip(dp_accel, dims=(1,)).roll(1, dims=1)
             dp_vel[:, 1] = dp_vel[:, 2].clone()
-            m = torch.flip(m, dims=(1,))
+            mask = torch.flip(mask, dims=(1,))
 
             va = -dp_vel * 0.1 + dp_accel * 0.01
-            cumsum_va = ((1 - m) * va).cumsum(axis=1)
-            cumsum_va_by_segment = (1 - m) * (cumsum_va - ffill(m * cumsum_va))
-            dap_pos = torch.flip(m * dp_pos + (1 - m) * (ffill(m * dp_pos) + cumsum_va_by_segment), dims=(1,))
+            cumsum_va = ((1 - mask) * va).cumsum(axis=1)
+            cumsum_va_by_segment = (1 - mask) * (cumsum_va - ffill(mask * cumsum_va))
+            dap_pos = torch.flip(mask * dp_pos + (1 - mask) * (ffill(mask * dp_pos) + cumsum_va_by_segment), dims=(1,))
 
     else:
         if fb == "f":
-            cumsum_v = ((1 - m) * dp_vel * 0.1).cumsum(axis=1)  # [bs * players, time, 2]
-            cumsum_v_by_segment = (1 - m) * (cumsum_v - ffill(m * cumsum_v))
-            dap_pos = m * dp_pos + (1 - m) * (ffill(m * dp_pos) + cumsum_v_by_segment)
+            cumsum_v = ((1 - mask) * dp_vel * 0.1).cumsum(axis=1)  # [bs * players, time, 2]
+            cumsum_v_by_segment = (1 - mask) * (cumsum_v - ffill(mask * cumsum_v))
+            dap_pos = mask * dp_pos + (1 - mask) * (ffill(mask * dp_pos) + cumsum_v_by_segment)
 
         else:
             dp_pos = torch.flip(dp_pos, dims=(1,))  # [bs * players, time, 2]
             dp_vel = torch.flip(dp_vel, dims=(1,)).roll(1, dims=1)
-            m = torch.flip(m, dims=(1,))
+            mask = torch.flip(mask, dims=(1,))
 
-            cumsum_v = ((1 - m) * -dp_vel * 0.1).cumsum(axis=1)
-            cumsum_v_by_segment = (1 - m) * (cumsum_v - ffill(m * cumsum_v))
-            dap_pos = torch.flip(m * dp_pos + (1 - m) * (ffill(m * dp_pos) + cumsum_v_by_segment), dims=(1,))
+            cumsum_v = ((1 - mask) * -dp_vel * 0.1).cumsum(axis=1)
+            cumsum_v_by_segment = (1 - mask) * (cumsum_v - ffill(mask * cumsum_v))
+            dap_pos = torch.flip(mask * dp_pos + (1 - mask) * (ffill(mask * dp_pos) + cumsum_v_by_segment), dims=(1,))
 
     return dap_pos.reshape(-1, n_players, dap_pos.shape[1], 2) / scale_tensor  # [bs, players, time, 2]
 
