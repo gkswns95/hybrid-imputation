@@ -138,6 +138,7 @@ parser.add_argument("--window_size", type=int, required=False, default=200, help
 parser.add_argument("--window_stride", type=int, required=False, default=5, help="for SportsDataset")
 parser.add_argument("--normalize", action="store_true", default=False, help="normalize the position scale")
 parser.add_argument("--flip_pitch", action="store_true", default=False, help="augment data by flipping the pitch")
+parser.add_argument("--player_order", type=str, required=False, default=None, help="shuffle, xy_sort")
 
 parser.add_argument("--n_epochs", type=int, required=False, default=200, help="num epochs")
 parser.add_argument("--batch_size", type=int, required=False, default=32, help="batch size")
@@ -171,6 +172,7 @@ if __name__ == "__main__":
         "window_stride": args.window_stride,
         "normalize": args.normalize,
         "flip_pitch": args.flip_pitch,
+        "player_order": args.player_order,
         "n_epochs": args.n_epochs,
         "batch_size": args.batch_size,
         "start_lr": args.start_lr,
@@ -224,10 +226,12 @@ if __name__ == "__main__":
         title = f"{args.trial} {args.dataset} {args.model} {args.missing_pattern}"
         if args.missing_pattern != "camera":
             title += f" {args.missing_rate}"
-        print_keys = ["n_features", "window_size", "window_stride", "flip_pitch", "start_lr"]
         printlog(title)
-        printlog(model.module.params_str)
+
+        print_keys = ["n_features", "window_size", "window_stride", "flip_pitch", "player_order", "start_lr"]
         printlog(get_params_str(print_keys, model.module.params))
+
+        printlog(model.module.params_str)
         printlog("n_params {:,}".format(params["total_params"]))
 
     printlog("############################################################")

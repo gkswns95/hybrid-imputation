@@ -12,7 +12,7 @@ from models.utils import *
 
 class DBHP(nn.Module):
     def __init__(self, params, parser=None):
-        super(DBHP, self).__init__()
+        super().__init__()
 
         self.model_args = [
             "team_size",
@@ -44,11 +44,14 @@ class DBHP(nn.Module):
         self.model = DBHPImputer(self.params)
 
     def forward(self, data: Tuple[torch.Tensor], mode="train", device="cuda:0"):
-        if mode == "test":
-            if self.params["dataset"] == "afootball":  # randomly permute the player order
-                player_data = random_permutation(data[0], n_players=6)
-            else:
-                player_data, sort_idxs = xy_sort_tensor(data[0], n_players=self.params["team_size"] * 2)
+        if "player_order" not in self.params:
+            self.params["player_order"] = None
+
+        # if mode == "test" and self.params["dataset"] == "afootball":  # shuffle the players' order
+        if self.params["player_order"] == "shuffle":
+            player_data, player_orders = shuffle_players(data[0], n_players=self.params["team_size"] * 2)
+        elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
+            player_data, player_orders = sort_players(data[0], n_players=self.params["team_size"] * 2)
         else:
             player_data = data[0]  # [bs, time, x] = [bs, time, players * feats]
 
@@ -119,11 +122,11 @@ class DBHP(nn.Module):
         if mode == "test" and self.params["missing_pattern"] == "camera":  # for section 5
             ret["camera_vertices"] = camera_vertices
 
-        if mode == "test" and self.params["dataset"] != "afootball":
-            ret["input"] = xy_sort_tensor(ret["input"], sort_idxs, self.params["team_size"] * 2, mode="restore")
-            ret["mask"] = xy_sort_tensor(ret["mask"], sort_idxs, self.params["team_size"] * 2, mode="restore")
-            ret["target"] = xy_sort_tensor(ret["target"], sort_idxs, self.params["team_size"] * 2, mode="restore")
+        if "player_order" in self.params and self.params["player_order"] in ["shuffle", "xy_sort"]:
+            ret["input"] = sort_players(ret["input"], player_orders, self.params["team_size"] * 2, mode="restore")
+            ret["mask"] = sort_players(ret["mask"], player_orders, self.params["team_size"] * 2, mode="restore")
+            ret["target"] = sort_players(ret["target"], player_orders, self.params["team_size"] * 2, mode="restore")
             for k in pred_keys:
-                ret[k] = xy_sort_tensor(ret[k], sort_idxs, self.params["team_size"] * 2, mode="restore")
+                ret[k] = sort_players(ret[k], player_orders, self.params["team_size"] * 2, mode="restore")
 
         return ret
