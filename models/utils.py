@@ -199,16 +199,18 @@ def generate_mask(
     return mask, missing_rate  # [bs, time, players]
 
 
-def compute_deltas(mask: np.ndarray) -> Tuple[np.ndarray]:
+def compute_deltas(mask: np.ndarray, bidirectional=True) -> Tuple[np.ndarray]:
     cumsum_rmasks_f = (1 - mask).cumsum(axis=1)
     cumsum_prevs_f = np.maximum.accumulate(cumsum_rmasks_f * mask, axis=1)
     deltas_f = cumsum_rmasks_f - cumsum_prevs_f
 
-    cumsum_rmasks_b = np.flip(1 - mask, axis=1).cumsum(axis=1)
-    cumsum_prevs_b = np.maximum.accumulate(cumsum_rmasks_b * np.flip(mask, axis=1), axis=1)
-    deltas_b = np.flip(cumsum_rmasks_b - cumsum_prevs_b, axis=1)
-
-    return deltas_f, deltas_b  # [bs, time, players]
+    if bidirectional:
+        cumsum_rmasks_b = np.flip(1 - mask, axis=1).cumsum(axis=1)
+        cumsum_prevs_b = np.maximum.accumulate(cumsum_rmasks_b * np.flip(mask, axis=1), axis=1)
+        deltas_b = np.flip(cumsum_rmasks_b - cumsum_prevs_b, axis=1)
+        return deltas_f, deltas_b  # [bs, time, players]
+    else:
+        return deltas_f  # [bs, time, players]
 
 
 def time_interval(mask, time_gap, direction="f", mode="block"):

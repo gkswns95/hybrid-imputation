@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from models.dbhp.dbhp_forecaster import DBHPForecaster
 from models.dbhp.dbhp_imputer import DBHPImputer
 from models.dbhp.utils import static_hybrid_pred, static_hybrid_pred2
 from models.utils import *
@@ -41,7 +42,10 @@ class DBHP(nn.Module):
         self.build()
 
     def build(self):
-        self.model = DBHPImputer(self.params)
+        if self.params["missing_pattern"] == "forecast":
+            self.model = DBHPForecaster(self.params)
+        else:
+            self.model = DBHPImputer(self.params)
 
     def forward(self, data: Tuple[torch.Tensor], mode="train", device="cuda:0"):
         if "player_order" not in self.params:
@@ -64,18 +68,41 @@ class DBHP(nn.Module):
             mode=self.params["missing_pattern"],
             missing_rate=self.params["missing_rate"],
         )  # [bs, time, players]
-        deltas_f, deltas_b = compute_deltas(mask)  # [bs, time, players]
+
+        if self.params["missing_pattern"] == "forecast":
+            deltas_f = compute_deltas(mask, bidirectional=False)  # [bs, time, players]
+            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)
+            if self.params["cuda"]:
+                deltas_f = deltas_f.to(device)
+
+            ret["deltas_f"] = deltas_f
+
+        else:
+            deltas_f, deltas_b = compute_deltas(mask)  # [bs, time, players]
+            deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)
+            deltas_b = torch.tensor(deltas_b.copy(), dtype=torch.float32)
+            if self.params["cuda"]:
+                deltas_f, deltas_b = deltas_f.to(device), deltas_b.to(device)
+
+            ret["deltas_f"] = deltas_f
+            ret["deltas_b"] = deltas_b
 
         mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, players]
         mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1)  # [bs, time, x]
-        deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)
-        deltas_b = torch.tensor(deltas_b.copy(), dtype=torch.float32)
+        if self.params["cuda"]:
+            mask = mask.to(device)
 
-        if self.params["missing_pattern"] == "camera" and mode == "test":  # for section 5
+        ret["mask"] = mask
+        ret["input"] = player_data * mask
+        ret["missing_rate"] = missing_rate
+
+        if mode == "test" and self.params["missing_pattern"] == "camera":  # for section 5
             ball_data = ret["ball"].clone().cpu()
             if self.params["normalize"]:
-                ball_loc_unnormalized = normalize_tensor(ball_data, mode="upscale", dataset_type=self.params["dataset"])
-                camera_vertices = compute_camera_coverage(ball_loc_unnormalized)
+                ball_rescaled = normalize_tensor(ball_data, mode="upscale", dataset_type=self.params["dataset"])
+                ret["camera_vertices"] = compute_camera_coverage(ball_rescaled)
+            else:
+                ret["camera_vertices"] = compute_camera_coverage(ball_data)
 
         # else:  # if missing_pattern in ["uniform", "playerwise"]
         #     mask_ = torch.tensor(mask, dtype=torch.float32).unsqueeze(0).expand(bs, -1, -1)  # [bs, time, players]
@@ -86,27 +113,20 @@ class DBHP(nn.Module):
         #     deltas_f = torch.tensor(deltas_f.copy(), dtype=torch.float32)  # [bs, time, players]
         #     deltas_b = torch.tensor(deltas_b.copy(), dtype=torch.float32)
 
-        if self.params["cuda"]:
-            mask, deltas_f, deltas_b = mask.to(device), deltas_f.to(device), deltas_b.to(device)
-
-        ret["input"] = player_data * mask
-        ret["mask"] = mask
-        ret["missing_rate"] = missing_rate
-        ret["deltas_f"] = deltas_f
-        ret["deltas_b"] = deltas_b
-
         ret = self.model(ret, device=device)
 
-        if mode == "test" and self.params["dynamic_hybrid"]:
+        if mode == "test" and self.params["dynamic_hybrid"] and self.params["missing_pattern"] != "forecast":
             ret["hybrid_s"] = static_hybrid_pred(ret)
             ret["hybrid_s2"] = static_hybrid_pred2(ret)
 
         aggfunc = "mean" if mode == "train" else "sum"
         pred_keys = ["pred"]
         if self.params["deriv_accum"]:
-            pred_keys += ["dap_f", "dap_b"]
+            pred_keys += ["dap_f"]
+            if self.params["missing_pattern"] != "forecast":
+                pred_keys += ["dap_b"]
         if self.params["dynamic_hybrid"]:
-            if mode == "test":
+            if mode == "test" and self.params["missing_pattern"] != "forecast":
                 pred_keys += ["hybrid_s", "hybrid_s2"]
             pred_keys += ["hybrid_d"]
 
@@ -118,9 +138,6 @@ class DBHP(nn.Module):
                 aggfunc=aggfunc,
                 dataset=self.params["dataset"],
             )
-
-        if mode == "test" and self.params["missing_pattern"] == "camera":  # for section 5
-            ret["camera_vertices"] = camera_vertices
 
         if "player_order" in self.params and self.params["player_order"] in ["shuffle", "xy_sort"]:
             ret["input"] = sort_players(ret["input"], player_orders, self.params["team_size"] * 2, mode="restore")

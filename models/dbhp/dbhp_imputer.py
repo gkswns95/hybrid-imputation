@@ -99,7 +99,7 @@ class DBHPImputer(nn.Module):
                 self.fpi_st = SetTransformer(self.n_features, self.pi_z_dim, embed_type="i")
                 dp_rnn_in_dim += self.pi_z_dim
 
-            # self.in_fc = nn.Sequential(nn.Linear(rnn_input_dim, self.rnn_dim), nn.ReLU())
+            # self.in_fc = nn.Sequential(nn.Linear(rnn_in_dim, self.rnn_dim), nn.ReLU())
             if params["transformer"]:
                 # self.pos_encoder = PositionalEncoding(self.rnn_dim, dropout)
                 # trans_encoder_layer = TransformerEncoderLayer(self.rnn_dim, n_heads, self.rnn_dim * 2, dropout)
@@ -176,25 +176,18 @@ class DBHPImputer(nn.Module):
         dap_b = data["dap_b"].permute(2, 0, 1, 3)
         preds = torch.cat([dp_pos, dp_vel, dp_accel, dap_f, dap_b], dim=-1)  # [time, bs, players, 10]
 
-        if self.params["fpi"] or self.params["fpe"]:
-            if self.params["fpi"]:  # FPE + FPI
-                z = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(self.seq_len, self.bs, self.n_players, -1)
-            else:  # FPE only
-                z = self.fpe_z.reshape(self.seq_len, self.bs, self.n_players, -1)  # [time, bs, players, z]
-            gamma_f = self.temp_decay(data["deltas_f"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
-            gamma_b = self.temp_decay(data["deltas_b"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
-
-            rnn_input = torch.cat([preds, z, gamma_f, gamma_b], dim=-1).flatten(1, 2)  # [time, bs * players, -1]
-            out, _ = self.hybrid_rnn(rnn_input)  # [time, bs * players, hrnn * 2]
-            lambdas = self.hybrid_fc(out).unsqueeze(-1)  # [time, bs * players, 3, 1]
-
+        if self.params["fpe"] and self.params["fpi"]:  # FPE + FPI
+            z = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(self.seq_len, self.bs, self.n_players, -1)
+        elif self.params["fpe"]:  # FPE only
+            z = self.fpe_z.reshape(self.seq_len, self.bs, self.n_players, -1)  # [time, bs, players, z]
         else:
             z = self.z.unsqueeze(2).expand(-1, -1, self.n_players, -1)  # [time, bs, players, pi_z]
-            gamma_f = self.temp_decay(data["deltas_f"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
-            gamma_b = self.temp_decay(data["deltas_b"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
 
-        rnn_input = torch.cat([preds, z, gamma_f, gamma_b], dim=-1).flatten(1, 2)  # [time, bs * players, -1]
-        out, _ = self.hybrid_rnn(rnn_input)  # [time, bs * players, hrnn * 2]
+        gamma_f = self.temp_decay(data["deltas_f"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
+        gamma_b = self.temp_decay(data["deltas_b"].unsqueeze(-1)).transpose(0, 1)  # [time, bs, players, 1]
+
+        rnn_in = torch.cat([preds, z, gamma_f, gamma_b], dim=-1).flatten(1, 2)  # [time, bs * players, -1]
+        out, _ = self.hybrid_rnn(rnn_in)  # [time, bs * players, hrnn * 2]
         lambdas = self.hybrid_fc(out).unsqueeze(-1)  # [time, bs * players, 3, 1]
 
         dp_pos_ = dp_pos.flatten(1, 2).unsqueeze(2)  # [time, bs * players, 1, 2]
@@ -211,7 +204,7 @@ class DBHPImputer(nn.Module):
 
         lambdas = lambdas.reshape(self.seq_len, self.bs, self.n_players, 3).permute(1, 2, 0, 3)
 
-        return hybrid_pos, lambdas  # [bs, players, time, 3], [bs, players, time, 2]
+        return hybrid_pos, lambdas  # [bs, players, time, 2], [bs, players, time, 3]
 
     def forward(self, ret: Dict[str, torch.Tensor], device="cuda:0") -> Dict[str, torch.Tensor]:
         total_loss = 0.0
@@ -234,7 +227,7 @@ class DBHPImputer(nn.Module):
             else:
                 x = team1_x  # [time * bs, players, feats]
 
-            rnn_input_list = [x]
+            rnn_in = [x]
             if self.params["ppe"]:
                 team1_z = self.ppe_st(team1_x)  # [time * bs, team_size, pe_z]
                 if self.dataset in ["soccer", "basketball"]:
@@ -242,16 +235,16 @@ class DBHPImputer(nn.Module):
                     self.ppe_z = torch.cat([team1_z, team2_z], dim=1)  # [time * bs, players, pe_z]
                 else:
                     self.ppe_z = team1_z  # [time * bs, players, pe_z]
-                rnn_input_list += [self.ppe_z]
+                rnn_in += [self.ppe_z]
             if self.params["fpe"]:
                 self.fpe_z = self.fpe_st(x)  # [time * bs, players, pe_z]
-                rnn_input_list += [self.fpe_z]
+                rnn_in += [self.fpe_z]
             if self.params["fpi"]:
                 self.fpi_z = self.fpi_st(x).unsqueeze(1).expand(-1, self.n_players, -1)  # [time * bs, players, pi_z]
-                rnn_input_list += [self.fpi_z]
+                rnn_in += [self.fpi_z]
 
-            rnn_in = torch.cat(rnn_input_list, -1).reshape(self.seq_len, self.bs * self.n_players, -1)
-            # rnn_input = self.in_fc(rnn_input)  # [time, bs * players, rnn]
+            rnn_in = torch.cat(rnn_in, -1).reshape(self.seq_len, self.bs * self.n_players, -1)
+            # rnn_in = self.in_fc(rnn_in)  # [time, bs * players, rnn]
 
             if self.params["transformer"]:
                 rnn_in = self.pos_encoder(rnn_in)

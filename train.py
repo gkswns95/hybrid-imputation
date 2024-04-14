@@ -72,7 +72,8 @@ def run_epoch(
     loss_dict = {"missing_rate": [], "total_loss": [], "pred_pe": []}
     if model.module.params["model"] == "dbhp" and model.module.params["deriv_accum"]:
         loss_dict["dap_f_pe"] = []
-        loss_dict["dap_b_pe"] = []
+        if model.module.params["missing_pattern"] != "forecast":
+            loss_dict["dap_b_pe"] = []
         if model.module.params["dynamic_hybrid"]:
             loss_dict["hybrid_d_pe"] = []
 
@@ -373,7 +374,10 @@ if __name__ == "__main__":
         if args.model == "dbhp" and model.module.params["dynamic_hybrid"]:
             valid_pe = valid_losses["hybrid_d_pe"]
         elif args.model == "dbhp" and model.module.params["deriv_accum"]:
-            valid_pe = np.mean(valid_losses["dap_f_pe"], valid_losses["dap_b_pe"])
+            if model.module.params["missing_pattern"] == "forecast":
+                valid_pe = np.mean(valid_losses["dap_f_pe"])
+            else:
+                valid_pe = np.mean(valid_losses["dap_f_pe"], valid_losses["dap_b_pe"])
         else:
             valid_pe = valid_losses["pred_pe"]
 
