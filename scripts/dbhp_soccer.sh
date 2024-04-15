@@ -1,31 +1,31 @@
-CUDA_VISIBLE_DEVICES=5 \
+CUDA_VISIBLE_DEVICES=1 \
 python train.py \
---trial 401 \
+--trial 300 \
 --dataset soccer \
 --model dbhp \
---missing_pattern forecast \
---missing_rate 0.6 \
+--missing_pattern camera \
+--missing_rate 0.5 \
 --normalize \
 --flip_pitch \
 --team_size 11 \
 --n_features 6 \
---window_size 50 \
+--window_size 200 \
 --window_stride 5 \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
---batch_size 64 \
+--batch_size 32 \
 --print_every_batch 50 \
 --save_every_epoch 100 \
 --seed 100 \
 --cuda \
 --cartesian_accel \
---fpe \
---fpi \
+--uniagent \
+--bidirectional \
 --pe_z_dim 32 \
 --pi_z_dim 32 \
---rnn_dim 512 \
---hybrid_rnn_dim 256 \
+--rnn_dim 256 \
+--hybrid_rnn_dim 128 \
 --n_layers 2 \
 --n_heads 4 \
 --dropout 0.0 \

@@ -17,6 +17,7 @@ class DBHP(nn.Module):
 
         self.model_args = [
             "team_size",
+            "uniagent",
             "ppe",
             "fpe",
             "fpi",
@@ -36,7 +37,7 @@ class DBHP(nn.Module):
         ]
         self.params = parse_model_params(self.model_args, params, parser)
 
-        print_args = ["ppe", "fpe", "fpi", "rnn_dim", "hybrid_rnn_dim", "deriv_accum", "dynamic_hybrid"]
+        print_args = ["uniagent", "ppe", "fpe", "fpi", "deriv_accum", "dynamic_hybrid"]
         self.params_str = get_params_str(print_args, params)
 
         self.build()
@@ -48,16 +49,18 @@ class DBHP(nn.Module):
             self.model = DBHPImputer(self.params)
 
     def forward(self, data: Tuple[torch.Tensor], mode="train", device="cuda:0"):
+        if "uniagent" not in self.params:
+            self.params["uniagent"] = False
         if "player_order" not in self.params:
             self.params["player_order"] = None
 
         # if mode == "test" and self.params["dataset"] == "afootball":  # shuffle the players' order
         if self.params["player_order"] == "shuffle":
             player_data, player_orders = shuffle_players(data[0], n_players=self.params["team_size"] * 2)
-        elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
+        elif mode == "test" or self.params["player_order"] == "xy_sort":  # sort players by x+y values
             player_data, player_orders = sort_players(data[0], n_players=self.params["team_size"] * 2)
         else:
-            player_data = data[0]  # [bs, time, x] = [bs, time, players * feats]
+            player_data, player_orders = data[0], None  # [bs, time, x] = [bs, time, players * feats]
 
         ball_data = data[1] if self.params["dataset"] == "soccer" else None  # [bs, time, 2]
         ret = {"target": player_data, "ball": ball_data}
@@ -139,7 +142,7 @@ class DBHP(nn.Module):
                 dataset=self.params["dataset"],
             )
 
-        if "player_order" in self.params and self.params["player_order"] in ["shuffle", "xy_sort"]:
+        if player_orders is not None:
             ret["input"] = sort_players(ret["input"], player_orders, self.params["team_size"] * 2, mode="restore")
             ret["mask"] = sort_players(ret["mask"], player_orders, self.params["team_size"] * 2, mode="restore")
             ret["target"] = sort_players(ret["target"], player_orders, self.params["team_size"] * 2, mode="restore")

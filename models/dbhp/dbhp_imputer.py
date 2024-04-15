@@ -119,7 +119,14 @@ class DBHPImputer(nn.Module):
 
         else:  # use random or naive player ordering
             assert not params["transformer"]
-            self.dp_in_fc = nn.Sequential(nn.Linear(self.n_players * self.n_features, self.pi_z_dim), nn.ReLU())
+
+            if self.params["uniagent"]:
+                self.dp_in_fc = nn.Sequential(nn.Linear(self.n_features, self.pe_z_dim), nn.ReLU())
+                dp_out_dim = self.n_features
+            else:
+                self.dp_in_fc = nn.Sequential(nn.Linear(self.n_players * self.n_features, self.pi_z_dim), nn.ReLU())
+                dp_out_dim = self.n_players * self.n_features
+
             self.dp_rnn = nn.LSTM(
                 input_size=self.pi_z_dim,
                 hidden_size=self.rnn_dim,
@@ -127,8 +134,8 @@ class DBHPImputer(nn.Module):
                 dropout=dropout,
                 bidirectional=params["bidirectional"],
             )
-            dp_rnn_out_dim = self.rnn_dim * 2 if params["bidirectional"] else self.rnn_dim * 2
-            self.dp_fc = nn.Linear(dp_rnn_out_dim, self.n_players * self.n_features)
+            dp_rnn_out_dim = self.rnn_dim * 2 if params["bidirectional"] else self.rnn_dim
+            self.dp_fc = nn.Linear(dp_rnn_out_dim, dp_out_dim)
 
         if self.params["dynamic_hybrid"]:
             self.temp_decay = TemporalDecay(input_size=1, output_size=1, diag=False)
@@ -136,7 +143,7 @@ class DBHPImputer(nn.Module):
 
             if params["fpe"] and params["fpi"]:
                 hybrid_rnn_in_dim = self.pe_z_dim + self.pi_z_dim + 12
-            elif params["fpe"]:
+            elif params["fpe"] or params["uniagent"]:
                 hybrid_rnn_in_dim = self.pe_z_dim + 12
             else:
                 hybrid_rnn_in_dim = self.pi_z_dim + 12
@@ -156,18 +163,6 @@ class DBHPImputer(nn.Module):
                 nn.Softmax(dim=-1),
             )
 
-            # else:
-            #     self.hybrid_rnn = nn.LSTM(
-            #         input_size=self.n_players * 12 + self.pi_z_dim,
-            #         hidden_size=self.hybrid_rnn_dim,
-            #         num_layers=n_layers,
-            #         dropout=dropout,
-            #         bidirectional=True,
-            #     )
-            #     self.hybrid_fc = nn.Sequential(
-            #         nn.Linear(self.hybrid_rnn_dim * 2, self.n_players * 3), nn.Softmax(dim=-1)
-            #     )
-
     def dynamic_hybrid_pred(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor]:
         dp_pos = data["pos_pred"].permute(2, 0, 1, 3)  # [time, bs, players, 2]
         dp_vel = data["vel_pred"].permute(2, 0, 1, 3)
@@ -180,6 +175,8 @@ class DBHPImputer(nn.Module):
             z = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(self.seq_len, self.bs, self.n_players, -1)
         elif self.params["fpe"]:  # FPE only
             z = self.fpe_z.reshape(self.seq_len, self.bs, self.n_players, -1)  # [time, bs, players, z]
+        elif self.params["uniagent"]:
+            z = self.z.reshape(self.seq_len, self.bs, self.n_players, -1)  # [time, bs, players, pe_z]
         else:
             z = self.z.unsqueeze(2).expand(-1, -1, self.n_players, -1)  # [time, bs, players, pi_z]
 
@@ -207,16 +204,19 @@ class DBHPImputer(nn.Module):
         return hybrid_pos, lambdas  # [bs, players, time, 2], [bs, players, time, 3]
 
     def forward(self, ret: Dict[str, torch.Tensor], device="cuda:0") -> Dict[str, torch.Tensor]:
-        total_loss = 0.0
+        total_loss = 0
+
         if not self.params["transformer"]:
             self.dp_rnn.flatten_parameters()
+            if self.params["dynamic_hybrid"]:
+                self.hybrid_rnn.flatten_parameters()
 
         if self.params["cuda"]:
             input = ret["input"].to(device)
             target = ret["target"].to(device)
             mask = ret["mask"].to(device)
 
-        input = input.transpose(0, 1)  # [bs, time, -1] to [time, bs, -1]
+        input = input.transpose(0, 1)  # [bs, time, x] to [time, bs, x]
         self.seq_len, self.bs = input.shape[:2]
 
         if self.params["ppe"] or self.params["fpe"] or self.params["fpi"]:
@@ -252,6 +252,12 @@ class DBHPImputer(nn.Module):
             else:
                 out = self.dp_rnn(rnn_in)[0]  # [time, bs * players, rnn * 2]
 
+            out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, x]
+
+        elif self.params["uniagent"]:
+            input = input.reshape(self.seq_len, self.bs * self.n_players, -1)  # [time, bs * players, feats]
+            self.z = self.dp_in_fc(input)  # [time, bs * players, pe_z]
+            out = self.dp_rnn(self.z)[0]  # [time, bs * players, rnn * 2]
             out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, x]
 
         else:
