@@ -203,10 +203,11 @@ class TraceHelper:
                 ret[k] = torch.zeros(seq_len, out_xy_dim)  # [time, players * 2]
 
         if model_type == "dbhp" and model.params["dynamic_hybrid"]:
+            n_lambdas = 2 if model.params["missing_pattern"] == "forecast" else 3
             if dataset_type == "afootball":
-                ret["lambdas"] = torch.zeros(seq_len, model.params["team_size"] * 3)
+                ret["lambdas"] = torch.zeros(seq_len, model.params["team_size"] * n_lambdas)
             else:
-                ret["lambdas"] = torch.zeros(seq_len, (model.params["team_size"] * 2) * 3)
+                ret["lambdas"] = torch.zeros(seq_len, (model.params["team_size"] * 2) * n_lambdas)
 
         # if model.params["missing_pattern"] == "camera":
         #     n_windows = 1
@@ -299,11 +300,19 @@ class TraceHelper:
         pred_keys = ["pred"]
         if model_type == "dbhp":
             if model.params["deriv_accum"]:
-                pred_keys += ["dap_f", "dap_b"]
+                pred_keys += ["dap_f"]
+                if model.params["missing_pattern"] != "forecast":
+                    pred_keys += ["dap_b"]
             if model.params["dynamic_hybrid"]:
-                pred_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
+                if model.params["missing_pattern"] == "forecast":
+                    pred_keys += ["hybrid_d"]
+                else:
+                    pred_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
         if naive_baselines:
-            pred_keys += ["linear", "knn", "ffill"]
+            if model.params["missing_pattern"] == "forecast":
+                pred_keys += ["ffill"]
+            else:
+                pred_keys += ["linear", "knn", "ffill"]
 
         stat_keys = ["total_frames", "missing_frames"]
         stat_keys += [f"{k}_{m}" for k in pred_keys for m in ["pe", "se", "sce", "ple"]]
@@ -318,7 +327,8 @@ class TraceHelper:
             ret[k] = self.traces.copy(deep=True)
 
         if model_type == "dbhp" and model.params["dynamic_hybrid"]:
-            lambda_cols = [f"{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
+            lambda_types = ["_w0", "_w1"] if model.params["missing_pattern"] == "forecast" else ["_w0", "_w1", "_w2"]
+            lambda_cols = [f"{p}{w}" for p in players for w in lambda_types]
             ret["lambdas"] = pd.DataFrame(-1, index=self.traces.index, columns=lambda_cols)
 
         x_cols = [c for c in self.traces.columns if c.endswith("_x")]
@@ -378,7 +388,7 @@ class TraceHelper:
 
                 if model_type == "dbhp" and model.params["dynamic_hybrid"]:
                     ep_players = [c[:-2] for c in phase_player_cols if "_x" in c]
-                    lambda_cols = [f"{p}{w}" for p in ep_players for w in ["_w0", "_w1", "_w2"]]
+                    lambda_cols = [f"{p}{w}" for p in ep_players for w in lambda_types]
                     ret["lambdas"].loc[ep_traces.index, lambda_cols] = np.array(ep_ret["lambdas"])
 
                 for key in ep_stats:
