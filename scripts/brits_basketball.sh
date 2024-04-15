@@ -1,0 +1,24 @@
+python train.py \
+--trial 4004 \
+--dataset basketball \
+--model brits \
+--target_type imputation \
+--missing_pattern playerwise \
+--n_players 5 \
+--n_features 2 \
+--train_nba \
+--valid_nba \
+--rnn_dim 512 \
+--dropout 0.0 \
+--cartesian_accel \
+--xy_sort \
+--n_epochs 100 \
+--start_lr 1e-3 \
+--min_lr 1e-5 \
+--batch_size 16 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 100 \
+--cuda \
+--normalize \
+--flip_pitch \
