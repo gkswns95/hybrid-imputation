@@ -23,7 +23,7 @@ python train.py \
 --bidirectional \
 --dynamic_missing \
 --avg_length_loss \
---n_epochs 1000 \
+--n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
 --batch_size 64 \

@@ -18,7 +18,8 @@ class SoccerDataset(Dataset):
         save_new=False,
         n_features=6,
         cartesian_accel=False,
-        window_size=200,
+        #MH (Change) [50, 100, 200(Original),300]
+        window_size=100,
         pitch_size=(108, 72),
         normalize=False,
         flip_pitch=False,
@@ -43,7 +44,8 @@ class SoccerDataset(Dataset):
         self.k = 11  # number of input players per each team
 
         self.ws = window_size
-        self.n_sliding = 30 # number of sliding window
+        #MH (Change) [6, 12, 30(Original), 50]
+        self.n_sliding = 12 # number of sliding window
         self.ps = pitch_size
         self.augment = flip_pitch
         self.overlap = overlap

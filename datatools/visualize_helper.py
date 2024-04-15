@@ -61,13 +61,13 @@ class VisualizeHelper:
             pred_keys.update({
             "mask": "mask",
             "target": "Ground Truth",
-            "train_hybrid": "STRNN-DBHP",
-            "nrtsi": "NRTSI",
-            "graphimputer": "GraphImputer",
-            "naomi": "NAOMI",
-            "brits": "BRITS",
+            "tmp1": "STRNN-DBHP",
+            "tmp2": "NRTSI",
+            "pred": "LatentODE",
+            "tmp3": "NAOMI",
+            "tmp4": "BRITS",
             "linear": "Linear",
-            "knn": "KNN",
+            "tmp5": "KNN",
              })
         elif self.mode == "dist_heatmap":
             pred_keys.update({

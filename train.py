@@ -75,7 +75,7 @@ def run_epoch(model: nn.DataParallel, optimizer: torch.optim.Adam, epoch: int, t
     dist_dict = {f"{key}_dist": [] for key in pred_keys}
 
     for batch_idx, data in enumerate(loader):
-        if model.module.params["model"] in ["ours", "brits", "naomi", "graphimputer"]:
+        if model.module.params["model"] in ["ours", "brits", "naomi", "graphimputer", "latentode"]:
             if train:
                 out = model(data, device=default_device)
             else:
@@ -206,6 +206,10 @@ if __name__ == "__main__":
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
+    #For debugging
+    # default_device = 'cpu'
+    # params['device'] = 'cpu'
+    
     # Load model
     model = load_model(args.model, params, parser).to(default_device)
     if params["load_pre_train"]:
@@ -358,7 +362,7 @@ if __name__ == "__main__":
 
         # Remove parameters with requires_grad=False (https://github.com/pytorch/pytorch/issues/679)
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.module.parameters()), lr=lr)
-
+        
         printlog(hyperparams_str(epoch, hyperparams))
         start_time = time.time()
 

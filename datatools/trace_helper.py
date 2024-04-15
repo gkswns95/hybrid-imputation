@@ -241,8 +241,9 @@ class TraceHelper:
                         imputer_key = key + "_pred"
                     traces = window_ret[imputer_key].detach().cpu().squeeze(0)
                     calc_statistic_metrics(traces, targets, masks, window_ret, imputer=key, dataset=dataset)
-        
+            
             # Save sequence results
+            # print(episode_target[i_from:i_to].shape, window_ret['target'].shape)
             episode_target[i_from:i_to] = window_ret["target"].detach().cpu().squeeze(0)
             episode_mask[i_from:i_to] = window_ret["mask"].detach().cpu().squeeze(0)
             for key in model_keys:
