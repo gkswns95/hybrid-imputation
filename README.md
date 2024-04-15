@@ -57,9 +57,9 @@ We have also implemented code for analyzing model performance by visualizing imp
       	![soccer_example](examples/soccer_example.gif)<br>
 
 - **Plotting trajectories imputed by each model**
-- Examples of the visualized imputed trajectories for each model are provided. A black dot represents the first frame of the sequence data, a solid line shows the complete trajectories which include both observed and imputed trajectories, and a circle with light-colored dots signifies the missing trajectories that each model has imputed.
-	- Example of imputed trajectories (Basketball)
-	![imputed_trajectories_example](images/Imputed_trajectories.png)<br>
+	- Examples of the visualized imputed trajectories for each model are provided. A black dot represents the first frame of the sequence 	data, a solid line shows the complete trajectories which include both observed and imputed trajectories, and a circle with light-colored dots signifies the missing trajectories that each model has imputed.
+		- Example of imputed trajectories (Basketball)
+		![imputed_trajectories_example](images/Imputed_trajectories.png)<br>
 
 - **Plotting dynamic weights assigned on each model (STRNN-DP, STRNN-DAP-F, STRNN-DAP-B)**
   	- Example of the plotted dynamic weights for our STRNN-DBHP-D model
