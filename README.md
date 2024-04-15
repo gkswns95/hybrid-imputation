@@ -62,5 +62,5 @@ We have also implemented code for analyzing model performance by visualizing imp
 		![imputed_trajectories_example](images/Imputed_trajectories.png)<br>
 
 - **Plotting dynamic weights assigned on each model (STRNN-DP, STRNN-DAP-F, STRNN-DAP-B)**
-  	- Example of the plotted dynamic weights for our STRNN-DBHP-D model
+  	- Example of the dynamic weights for our STRNN-DBHP-D model
 	![heatmap_example](images/dynamic_weights_heatmap.png)<br>
