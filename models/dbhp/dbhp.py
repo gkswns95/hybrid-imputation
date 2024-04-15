@@ -91,7 +91,8 @@ class DBHP(nn.Module):
             ret["deltas_b"] = deltas_b
 
         mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, players]
-        mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1)  # [bs, time, x]
+        # mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1)  # [bs, time, x]
+        mask = torch.repeat_interleave(mask, 6, dim=-1)  # [bs, time, x]
         if self.params["cuda"]:
             mask = mask.to(device)
 

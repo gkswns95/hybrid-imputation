@@ -115,17 +115,20 @@ class DBHPImputer(nn.Module):
                     bidirectional=params["bidirectional"],
                 )
             dp_rnn_out_dim = self.rnn_dim * 2 if params["bidirectional"] else self.rnn_dim
-            self.dp_fc = nn.Linear(dp_rnn_out_dim, self.n_features)
+            dp_out_dim = 6 if params["cartesian_accel"] else 4
+            self.dp_fc = nn.Linear(dp_rnn_out_dim, dp_out_dim)
 
         else:  # use random or naive player ordering
             assert not params["transformer"]
 
+            dp_rnn_out_dim = self.rnn_dim * 2 if params["bidirectional"] else self.rnn_dim
+            dp_out_dim = 6 if params["cartesian_accel"] else 4
+
             if self.params["uniagent"]:
                 self.dp_in_fc = nn.Sequential(nn.Linear(self.n_features, self.pe_z_dim), nn.ReLU())
-                dp_out_dim = self.n_features
             else:
                 self.dp_in_fc = nn.Sequential(nn.Linear(self.n_players * self.n_features, self.pi_z_dim), nn.ReLU())
-                dp_out_dim = self.n_players * self.n_features
+                dp_out_dim *= self.n_players
 
             self.dp_rnn = nn.LSTM(
                 input_size=self.pi_z_dim,
@@ -134,7 +137,6 @@ class DBHPImputer(nn.Module):
                 dropout=dropout,
                 bidirectional=params["bidirectional"],
             )
-            dp_rnn_out_dim = self.rnn_dim * 2 if params["bidirectional"] else self.rnn_dim
             self.dp_fc = nn.Linear(dp_rnn_out_dim, dp_out_dim)
 
         if self.params["dynamic_hybrid"]:
@@ -142,11 +144,11 @@ class DBHPImputer(nn.Module):
             self.hybrid_rnn_dim = params["hybrid_rnn_dim"]
 
             if params["fpe"] and params["fpi"]:
-                hybrid_rnn_in_dim = self.pe_z_dim + self.pi_z_dim + 12
+                hybrid_rnn_in_dim = dp_out_dim + self.pe_z_dim + self.pi_z_dim + 6
             elif params["fpe"] or params["uniagent"]:
-                hybrid_rnn_in_dim = self.pe_z_dim + 12
+                hybrid_rnn_in_dim = dp_out_dim + self.pe_z_dim + 6
             else:
-                hybrid_rnn_in_dim = self.pi_z_dim + 12
+                hybrid_rnn_in_dim = dp_out_dim + self.pi_z_dim + 6
 
             self.hybrid_rnn = nn.LSTM(
                 input_size=hybrid_rnn_in_dim,
@@ -166,10 +168,14 @@ class DBHPImputer(nn.Module):
     def dynamic_hybrid_pred(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor]:
         dp_pos = data["pos_pred"].permute(2, 0, 1, 3)  # [time, bs, players, 2]
         dp_vel = data["vel_pred"].permute(2, 0, 1, 3)
-        dp_accel = data["accel_pred"].permute(2, 0, 1, 3)
         dap_f = data["dap_f"].permute(2, 0, 1, 3)
         dap_b = data["dap_b"].permute(2, 0, 1, 3)
-        preds = torch.cat([dp_pos, dp_vel, dp_accel, dap_f, dap_b], dim=-1)  # [time, bs, players, 10]
+
+        if self.params["cartesian_accel"]:
+            dp_accel = data["accel_pred"].permute(2, 0, 1, 3)
+            preds = torch.cat([dp_pos, dp_vel, dp_accel, dap_f, dap_b], dim=-1)  # [time, bs, players, 10]
+        else:
+            preds = torch.cat([dp_pos, dp_vel, dap_f, dap_b], dim=-1)  # [time, bs, players, 8]
 
         if self.params["fpe"] and self.params["fpi"]:  # FPE + FPI
             z = torch.cat([self.fpe_z, self.fpi_z], -1).reshape(self.seq_len, self.bs, self.n_players, -1)
@@ -216,8 +222,9 @@ class DBHPImputer(nn.Module):
             target = ret["target"].to(device)
             mask = ret["mask"].to(device)
 
-        input = input.transpose(0, 1)  # [bs, time, x] to [time, bs, x]
-        self.seq_len, self.bs = input.shape[:2]
+        self.bs, self.seq_len = input.shape[:2]
+        input = input.reshape(self.bs, self.seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3)
+        input = input.transpose(0, 1)  # [bs, time, players * 6] to [time, bs, players * feats]
 
         if self.params["ppe"] or self.params["fpe"] or self.params["fpi"]:
             team1_x = input[..., : self.n_features * self.team_size].reshape(-1, self.team_size, self.n_features)
@@ -252,18 +259,18 @@ class DBHPImputer(nn.Module):
             else:
                 out = self.dp_rnn(rnn_in)[0]  # [time, bs * players, rnn * 2]
 
-            out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, x]
+            out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, players * dp_out]
 
         elif self.params["uniagent"]:
             input = input.reshape(self.seq_len, self.bs * self.n_players, -1)  # [time, bs * players, feats]
             self.z = self.dp_in_fc(input)  # [time, bs * players, pe_z]
             out = self.dp_rnn(self.z)[0]  # [time, bs * players, rnn * 2]
-            out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, x]
+            out = self.dp_fc(out).reshape(self.seq_len, self.bs, -1).transpose(0, 1)  # [bs, time, players * dp_out]
 
         else:
             self.z = self.dp_in_fc(input)  # [time, bs, pi_z]
             out = self.dp_rnn(self.z)[0]  # [time, bs, rnn * 2]
-            out = self.dp_fc(out).transpose(0, 1)  # [bs, time, x]
+            out = self.dp_fc(out).transpose(0, 1)  # [bs, time, players * dp_out]
 
         # if self.stochastic:
         #     mean = self.mean_fc(h) # [time, bs * players, out]
@@ -274,14 +281,23 @@ class DBHPImputer(nn.Module):
         # else:
         #     out = self.out_fc(h) # [time, bs * players, out]
 
-        pred = mask * target + (1 - mask) * out  # [bs, time, x], STRNN-DP
+        # print(mask.shape, target.shape, out.shape)
+        # pred = mask * target + (1 - mask) * out  # [bs, time, players * dp_out], STRNN-DP
 
-        feature_types = ["pos", "vel", "cartesian_accel"][: self.n_features // 2]
-        for mode in feature_types:
-            pred_ = reshape_tensor(pred, mode=mode, dataset_type=self.dataset).transpose(1, 2)  # [bs, players, time, 2]
-            target_ = reshape_tensor(target, mode=mode, dataset_type=self.dataset).transpose(1, 2)
-            mask_ = reshape_tensor(mask, mode=mode, dataset_type=self.dataset).transpose(1, 2)
-            loss = torch.abs((pred_ - target_) * (1 - mask_)).sum() / (1 - mask_).sum()
+        dp_out_types = ["pos", "vel"]
+        if self.params["cartesian_accel"]:
+            dp_out_types += ["cartesian_accel"]
+
+        dp_out_list = []
+
+        for mode in dp_out_types:
+            # [bs, time, players * dp_out] to [bs, players, time, 2]
+            pred_xy = reshape_tensor(out, mode=mode, dataset_type=self.dataset).transpose(1, 2)
+            target_xy = reshape_tensor(target, mode=mode, dataset_type=self.dataset).transpose(1, 2)
+            mask_xy = reshape_tensor(mask, mode=mode, dataset_type=self.dataset).transpose(1, 2)
+
+            pred_xy = mask_xy * target_xy + (1 - mask_xy) * pred_xy  # [bs, players, time, 2]
+            loss = torch.abs((pred_xy - target_xy) * (1 - mask_xy)).sum() / (1 - mask_xy).sum()
             total_loss += loss
 
             # if self.stochastic:
@@ -292,10 +308,12 @@ class DBHPImputer(nn.Module):
             #     loss = torch.abs((pred_ - target_) * (1 - mask_)).sum() / (1-mask_).sum()
 
             mode = mode.split("_")[-1]  # cartesian_accel to accel
-            ret[f"{mode}_pred"] = pred_
-            ret[f"{mode}_target"] = target_
-            ret[f"{mode}_mask"] = mask_
+            ret[f"{mode}_pred"] = pred_xy
+            ret[f"{mode}_target"] = target_xy
+            ret[f"{mode}_mask"] = mask_xy
             ret[f"{mode}_loss"] = loss
+
+            dp_out_list.append(pred_xy)
 
         if self.params["deriv_accum"]:
             # DAP-F and DAP-B with output sizes [bs, players, time, 2]
@@ -331,7 +349,7 @@ class DBHPImputer(nn.Module):
             ret["hybrid_d"] = ret["hybrid_d"].transpose(1, 2).flatten(2, 3)
             ret["lambdas"] = ret["lambdas"].transpose(1, 2).flatten(2, 3)  # [bs, time, players * 3]
 
-        ret["pred"] = pred
+        ret["pred"] = torch.cat(dp_out_list, dim=-1).transpose(1, 2).flatten(2, 3)  # [bs, time, players, dp_out]
         ret["total_loss"] = total_loss
 
         return ret

@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=1 \
+CUDA_VISIBLE_DEVICES=3 \
 python train.py \
---trial 300 \
+--trial 150 \
 --dataset soccer \
 --model dbhp \
 --missing_pattern camera \
@@ -8,7 +8,7 @@ python train.py \
 --normalize \
 --flip_pitch \
 --team_size 11 \
---n_features 6 \
+--n_features 2 \
 --window_size 200 \
 --window_stride 5 \
 --n_epochs 100 \
@@ -19,11 +19,11 @@ python train.py \
 --save_every_epoch 100 \
 --seed 100 \
 --cuda \
---cartesian_accel \
---uniagent \
 --bidirectional \
---pe_z_dim 32 \
---pi_z_dim 32 \
+--fpe \
+--fpi \
+--pe_z_dim 16 \
+--pi_z_dim 16 \
 --rnn_dim 256 \
 --hybrid_rnn_dim 128 \
 --n_layers 2 \

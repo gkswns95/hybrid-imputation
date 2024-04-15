@@ -12,7 +12,6 @@ class SportsDataset(Dataset):
         self,
         sports="soccer",  # ["soccer", "basketball", "afootball"]
         data_paths=None,
-        n_features=6,
         window_size=200,
         min_episode_size=100,
         stride=0,
@@ -34,8 +33,8 @@ class SportsDataset(Dataset):
             window_size = 50
             min_episode_size = 50
 
-        self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"][:n_features]
-        self.n_features = n_features
+        self.feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
+        self.n_features = len(self.feature_types)
         self.window_size = window_size
         stride = window_size if stride == 0 else stride
 
@@ -70,7 +69,7 @@ class SportsDataset(Dataset):
                     input_cols = phase_traces[player_cols].dropna(axis=1).columns
                     team1_cols = [c for c in input_cols if c[0] == team1_code]
                     team2_cols = [c for c in input_cols if c[0] == team2_code]
-                    if min(len(team1_cols), len(team2_cols)) < n_features * self.team_size:
+                    if min(len(team1_cols), len(team2_cols)) < self.n_features * self.team_size:
                         continue
 
                     # Reorder teams so that the left team comes first
@@ -123,10 +122,6 @@ class SportsDataset(Dataset):
 
         if normalize:
             self.ps = (1, 1)
-
-        if n_features < 6:
-            player_data = player_data.reshape(player_data.shape[0], self.window_size, -1, len(self.feature_types))
-            player_data = player_data[..., :n_features].reshape(player_data.shape[0], self.window_size, -1)
 
         self.player_data = torch.FloatTensor(player_data)  # [bs, time, players * feats]
         self.ball_data = torch.FloatTensor(ball_data)  # [bs, time, 2], only for soccer dataset

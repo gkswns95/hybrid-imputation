@@ -266,7 +266,6 @@ if __name__ == "__main__":
     train_dataset = SportsDataset(
         sports=args.dataset,
         data_paths=train_paths,
-        n_features=args.n_features,
         window_size=window_size,
         min_episode_size=episode_min_len,
         stride=args.window_stride,
@@ -276,7 +275,6 @@ if __name__ == "__main__":
     valid_dataset = SportsDataset(
         sports=args.dataset,
         data_paths=valid_paths,
-        n_features=args.n_features,
         window_size=window_size,
         min_episode_size=episode_min_len,
         stride=window_size,
