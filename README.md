@@ -21,7 +21,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
     $ pip install -r requirments.txt
     ```
 ## Data Usage
-We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/u/0/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn).
+We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/folders/1vTBX_pvNScgQ0-XbWArzMTUDa-thM978?usp=sharing).
 After downloading the data folder from Google Drive, you should then place it under the 'hybrid-imputation' project floder.
 
 - **Soccer Dataset (Metrica)**
