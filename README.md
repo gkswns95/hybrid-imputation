@@ -22,6 +22,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
     ```
 ## Data Usage
 We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/u/0/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn).
+After downloading the data folder from Google Drive, you should then place it under the 'hybrid-imputation' project floder.
 
 - **Soccer Dataset (Metrica)**
     - The soccer data is provided by [Metrica Sports](https://metrica-sports.com). It includes trajectories for 22 players across 3 matches, sampled at 25Hz. We have downsampled the data to 10Hz and set a sequence length of 200, corresponding to 20 seconds of gameplay. The data preprocessing code is implemented in `datatools/metrica_data_processing.ipynb`, and the processed data used in our experiments can be downloaded from the Google Drive link provided above.
@@ -52,7 +53,7 @@ We have utilized three real-world sports multi-agent trajectory datasets, includ
 We have implemented codes to analyze imputation performance through the visualization of imputed trajectories. After running the evaluation code, please run the “Performance Analysis” code block in the `model_eval.ipynb`.
 
 - **Animating imputed trajectories**
-    - First, we have implemented an animation tool based on the [ballradar](https://github.com/pientist/ballradar) code. This code is implemented in 'datatools/trace_animator.py'. To produce the animation results, please run the Animation code block in the model.ipynb code. The example below shows the animation results for soccer dataset.The ground-truth of the players' trajectories is represented as circles with numbers, whereas the imputed trajectories are represented as circles with bounding boxes. Additionally, the numbers on top of the bounding boxes indicate the error between the correct and predicted trajectories, calculated as the L2-distance.
+    - First, we have implemented an animation tool based on the [ballradar](https://github.com/pientist/ballradar) code. This code is implemented in `datatools/trace_animator.py`. To reproduce the animation results, please run the Animation code block in the `model_eval.ipynb`. The example below shows the animation results for soccer dataset.The ground-truth of the players' trajectories is represented as circles with numbers, whereas the imputed trajectories are represented as circles with bounding boxes. Additionally, the numbers on top of the bounding boxes indicate the error between the correct and predicted trajectories, calculated as the L2-distance.
       - Example of animation result (Soccer)
       	![soccer_example](img/soccer_example.gif)<br>
 
@@ -62,5 +63,6 @@ We have implemented codes to analyze imputation performance through the visualiz
 		![imputed_trajectories_example](img/Imputed_trajectories.png)<br>
 
 - **Plotting dynamic weights assigned on each model (STRNN-DP, STRNN-DAP-F, STRNN-DAP-B)**
+	- Finally, we implemented code to visualize the weights assigned to each model fused in our proposed STRNN-DBHP-D model. Below is an example of visualizing the weights assigned to each model as a heatmap. These results can be reproduced by executing the plotting code block in the 'model_eval.ipynb' notebook.
   	- Example of the dynamic weights for our STRNN-DBHP-D model
 	![heatmap_example](img/dynamic_weights_heatmap.png)<br>
