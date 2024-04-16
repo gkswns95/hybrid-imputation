@@ -63,6 +63,6 @@ We have implemented codes to analyze imputation performance through the visualiz
 		![imputed_trajectories_example](img/Imputed_trajectories.png)<br>
 
 - **Plotting dynamic weights assigned on each model (STRNN-DP, STRNN-DAP-F, STRNN-DAP-B)**
-	- Finally, we implemented code to visualize the weights assigned to each model fused in our proposed STRNN-DBHP-D model. Below is an example of visualizing the weights assigned to each model as a heatmap. These results can be reproduced by executing the plotting code block in the 'model_eval.ipynb' notebook.
+	- Finally, we implemented code to visualize the weights assigned to each model fused in our proposed STRNN-DBHP-D model. Below is an example of visualizing the weights assigned to each model as a heatmap. These results can be reproduced by executing the plotting code block in the `model_eval.ipynb` notebook.
   	- Example of the dynamic weights for our STRNN-DBHP-D model
 	![heatmap_example](img/dynamic_weights_heatmap.png)<br>
