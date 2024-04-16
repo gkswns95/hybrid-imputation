@@ -15,7 +15,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
     ```bash
     $ git clone https://github.com/gkswns95/hybrid-imputation.git
     ```
-2. **Install the requirements.txt file using the following command:**
+2. **Install the `requirements.txt` file using the following command:**
 
     ```bash
     $ pip install -r requirments.txt
