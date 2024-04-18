@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=3 \
+CUDA_VISIBLE_DEVICES=6 \
 python train.py \
---trial 150 \
+--trial 153 \
 --dataset soccer \
 --model dbhp \
 --missing_pattern camera \
@@ -8,7 +8,7 @@ python train.py \
 --normalize \
 --flip_pitch \
 --team_size 11 \
---n_features 2 \
+--n_features 4 \
 --window_size 200 \
 --window_stride 5 \
 --n_epochs 100 \

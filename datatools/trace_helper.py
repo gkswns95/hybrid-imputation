@@ -183,18 +183,22 @@ class TraceHelper:
             ball_traces = ball_traces.unsqueeze(0).to(device)  # [1, time, 2]
 
         if dataset_type == "afootball":
-            out_dim = model.params["team_size"] * model.params["n_features"]
+            in_dim = model.params["team_size"] * 6
+            player_out_dim = 6 if model.params["cartesian_accel"] else 4
+            out_dim = model.params["team_size"] * player_out_dim
             out_xy_dim = model.params["team_size"] * 2
         else:
-            out_dim = 2 * model.params["team_size"] * model.params["n_features"]
+            in_dim = 2 * model.params["team_size"] * 6
+            player_out_dim = 6 if model.params["cartesian_accel"] else 4
+            out_dim = 2 * model.params["team_size"] * player_out_dim
             out_xy_dim = 2 * model.params["team_size"] * 2
 
         seq_len = player_traces.shape[1]
 
         ret = dict()
-        ret["input"] = torch.zeros(seq_len, out_dim)
-        ret["target"] = torch.zeros(seq_len, out_dim)
-        ret["mask"] = -torch.ones(seq_len, out_dim)
+        ret["input"] = torch.zeros(seq_len, in_dim)
+        ret["target"] = torch.zeros(seq_len, in_dim)
+        ret["mask"] = -torch.ones(seq_len, in_dim)
 
         for k in pred_keys:
             if k == "pred":
@@ -250,6 +254,7 @@ class TraceHelper:
             ret["mask"][i_from:i_to] = window_ret["mask"].detach().cpu().squeeze(0)
             for k in pred_keys:
                 if k in window_ret.keys():
+                    # print(k, ret[k].shape, window_ret[k].shape)
                     ret[k][i_from:i_to] = window_ret[k].detach().cpu().squeeze(0)
 
             if model_type == "dbhp" and model.params["dynamic_hybrid"]:
@@ -271,7 +276,7 @@ class TraceHelper:
 
         stats = dict()
         stats["total_frames"] = seq_len
-        stats["missing_frames"] = int(((1 - ret["mask"]).sum() / model.params["n_features"]).item())
+        stats["missing_frames"] = int(((1 - ret["mask"]).sum() / 6).item())
         for k in pred_keys:
             errors = calc_pred_errors(ret[k], ret["target"], ret["mask"], dataset_type)
             stats[f"{k}_pe"] = errors[0]  # pos_error
@@ -292,9 +297,8 @@ class TraceHelper:
         model_type = model.params["model"]
         random.seed(1000)
 
-        feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"][: model.params["n_features"]]
-
         players = self.team1_players + self.team2_players
+        feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
         player_cols = [f"{p}{x}" for p in players for x in feature_types]
 
         pred_keys = ["pred"]
@@ -353,7 +357,7 @@ class TraceHelper:
             # reorder teams so that the left team comes first
             phase_player_cols = team1_cols + team2_cols
 
-            if min(len(team1_cols), len(team2_cols)) < model.params["n_features"] * model.params["team_size"]:
+            if min(len(team1_cols), len(team2_cols)) < model.params["team_size"] * len(feature_types):
                 continue
 
             episodes = [e for e in phase_traces["episode"].unique() if e > 0]
@@ -379,10 +383,15 @@ class TraceHelper:
                     )
 
                 # Update resulting DataFrames
-                pos_cols = [c for c in phase_player_cols if c.endswith("_x") or c.endswith("_y")]
+                pos_cols = [c for c in phase_player_cols if c[-2:] in ["_x", "_y"]]
+                if model.params["cartesian_accel"]:
+                    dp_cols = phase_player_cols
+                else:
+                    dp_cols = [c for c in phase_player_cols if c[-3:] not in ["_ax", "_ay"]]
+
                 for k in pred_keys:
                     if k in ["pred", "target", "mask"]:
-                        ret[k].loc[ep_traces.index, phase_player_cols] = np.array(ep_ret[k])
+                        ret[k].loc[ep_traces.index, dp_cols] = np.array(ep_ret[k])
                     else:
                         ret[k].loc[ep_traces.index, pos_cols] = np.array(ep_ret[k])
 
