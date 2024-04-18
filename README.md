@@ -5,7 +5,7 @@
 </div>
 The code corresponding to the paper “Multi-Agent Trajectory Imputation Using Derivative-based Hybrid Prediction." 
 
-The code is written with PyTorch v1.9.0 (Python 3.8.18).
+The code is written with PyTorch v1.10.1 (Python 3.8.18).
 
 ![overview](img/overview.png)<br>
 
@@ -18,34 +18,36 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
 2. **Install the `requirements.txt` file using the following command:**
 
     ```bash
-    $ pip install -r requirments.txt
+    $ pip install -r requirements.txt
     ```
 ## Data Usage
-We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn?usp=sharing).
-After downloading the `data` folder from Google Drive, you should then place it under the `hybrid-imputation` project floder.
+We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn?usp=sharing). After downloading the `data` folder from Google Drive, you should then place it under the `hybrid-imputation` project folder. Please note that all datasets uploaded to Google Drive have already been preprocessed according to our experimental settings. The settings for each dataset are as follows:
 
 - **Soccer Dataset (Metrica)**
-    - The soccer data is provided by [Metrica Sports](https://metrica-sports.com). It includes trajectories for 22 players across 3 matches, sampled at 25Hz. We have downsampled the data to 10Hz and set a sequence length of 200, corresponding to 20 seconds of gameplay. The data preprocessing code is implemented in `datatools/metrica_data_processing.ipynb`, and the processed data used in our experiments can be downloaded from the Google Drive link provided above.
+    - The soccer data is provided by [Metrica Sports](https://metrica-sports.com/). It includes trajectories for 22 players across 3 matches, sampled at 25Hz. We have downsampled the data to 10Hz and set a sequence length of 200, corresponding to 20 seconds of gameplay.
 - **Basketball Dataset (NBA)**
-    - The basketball data is provided by [NBA-Player-Movements](https://github.com/linouk23/NBA-Player-Movements). It contains trajectories for 10 players across 631 matches, sampled at 25Hz. To align the total frames with other datasets, we selected 100 matches for training/validation/testing data. We have also downsampled the sampling rate to 10Hz and set a sequence length of 200, consistent with the Metrica data. The preprocessing code is implemented in `datatools/nba_data_processing.ipynb`. The data used in our experiments can be downloaded from the Google Drive link provided above.
+    - The basketball data is provided by [NBA-Player-Movements](https://github.com/linouk23/NBA-Player-Movements). It contains trajectories for 10 players across 631 matches, sampled at 25Hz. To align the total frames with other datasets, we selected 100 matches for training/validation/testing data. We have also downsampled the sampling rate to 10Hz and set a sequence length of 200, consistent with the Metrica data.
 - **American Football (NFL)**
-    - The American football data is provided by [2021 Big Data Bowl data](https://www.kaggle.com/c/nfl-big-data-bowl-2021). It consists of trajectories for 6 offensive players with a sampling rate of 10Hz. Note that this data is utilized in [NRTSI](https://github.com/lupalab/NRTSI), which serves as our baseline. Therefore, for a fair comparison, we adopted the same settings as NRTSI, such as the sampling rate and sequence length. Consequently, we set the sequence length to 50 with a sampling rate of 10Hz. To convert the original data into our dataset format, we have implemented the data processing code, which can be found in `datatools/nfl_data_processing.ipynb`. The data utilized in our experiments can be downloaded from the Google Drive link provided above.
+    - The American football data is provided by [2021 Big Data Bowl data](https://www.kaggle.com/c/nfl-big-data-bowl-2021). It consists of trajectories for 6 offensive players with a sampling rate of 10Hz. Note that this data is utilized in [NRTSI](https://github.com/lupalab/NRTSI), which serves as our baseline. Therefore, for a fair comparison, we adopted the same settings as NRTSI, such as the sampling rate and sequence length.
 
 ## Running the Code
 1. **Training**
     
-    Run the following `.sh` file to train our proposed STRNN-DBHP-D model
-    
+    Run the following .sh files to train our proposed STRNN-DBHP-D model on each dataset:
+    * Train model on Soccer (Metrica) dataset
     ```bash
-    # Training model on "soccer (Metrica)" dataset
     $ sh script/dbhp_soccer.sh
-    # Training model on "basketball (NBA)" dataset
+    ```
+    * Train model on Basketball (NBA) dataset
+    ```bash
     $ sh script/dbhp_basketball.sh
-    # Training model on "american football (NFL)" dataset
+    ```
+    * Train model on American football (NFL) dataset
+    ```bash
     $ sh script/dbhp_afootball.sh
     ```
     
-2. **Evaluating**
+1. **Evaluating**
     
     Run the `model_eval.ipynb` code to evaluate the model performance.
 
