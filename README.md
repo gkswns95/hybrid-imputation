@@ -5,7 +5,7 @@
 </div>
 The code corresponding to the paper “Multi-Agent Trajectory Imputation Using Derivative-based Hybrid Prediction." 
 
-The code is written with PyTorch v1.9.0 (Python 3.8.18).
+The code is written with PyTorch v1.10.1 (Python 3.8.18).
 
 ![overview](img/overview.png)<br>
 
@@ -18,7 +18,7 @@ The code is written with PyTorch v1.9.0 (Python 3.8.18).
 2. **Install the `requirements.txt` file using the following command:**
 
     ```bash
-    $ pip install -r requirments.txt
+    $ pip install -r requirements.txt
     ```
 ## Data Usage
 We have utilized three real-world sports multi-agent trajectory datasets, including Soccer (Metrica), Basketball (NBA), and American Football (NFL). Each dataset can be downloaded from the following link: [Google Drive](https://drive.google.com/drive/folders/1QzaSsOVq4bccs90UjCS0-TJwvgxjErZn?usp=sharing).
