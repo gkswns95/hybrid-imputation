@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
 --trial 153 \
 --dataset soccer \
@@ -8,7 +8,7 @@ python train.py \
 --normalize \
 --flip_pitch \
 --team_size 11 \
---n_features 4 \
+--n_features 6 \
 --window_size 200 \
 --window_stride 5 \
 --n_epochs 100 \
@@ -29,5 +29,6 @@ python train.py \
 --n_layers 2 \
 --n_heads 4 \
 --dropout 0.0 \
+--cartesian_accel \
 --deriv_accum \
 --dynamic_hybrid \
