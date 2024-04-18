@@ -23,6 +23,12 @@ from datatools.nba_utils.Constant import Constant
 from datatools.nba_utils.Event import Event
 from datatools.nba_utils.Team import Team
 from datatools.trace_helper import TraceHelper
+
+from models.brits.brits import BRITS
+from models.dbhp.dbhp import DBHP
+from models.graph_imputer.graph_imputer import BidirectionalGraphImputer
+from models.naomi.naomi import NAOMI
+from models.nrtsi.nrtsi import NRTSI
 from models.utils import *
 
 
@@ -35,7 +41,7 @@ class NBADataHelper(TraceHelper):
         self.player_xy_cols = [f"player{p}{t}" for p in range(self.total_players) for t in ["_x", "_y"]]
 
         self.ws = 200
-        self.ps = pitch_size
+        self.pitch_size = pitch_size
 
     def reconstruct_df(self):
         """
@@ -77,8 +83,8 @@ class NBADataHelper(TraceHelper):
         y_cols = [c for c in self.player_xy_cols if c.endswith("_y")]
         self.traces[x_cols + ["ball_x"]] /= 100
         self.traces[y_cols + ["ball_y"]] /= 50
-        self.traces[x_cols + ["ball_x"]] *= self.ps[0]
-        self.traces[y_cols + ["ball_y"]] *= self.ps[1]
+        self.traces[x_cols + ["ball_x"]] *= self.pitch_size[0]
+        self.traces[y_cols + ["ball_y"]] *= self.pitch_size[1]
 
     def split_into_episodes(self, threshold_dist=3.0):
         """
@@ -205,92 +211,109 @@ class NBADataHelper(TraceHelper):
         ball_cols = ["ball_x", "ball_y", "ball_radius"]
         self.traces = self.traces[["episode", "frame"] + meta_cols + player_cols + ball_cols]  # Rearange columns.
 
-    def predict(self, model: nn.Module, statistic_metrics=False, gap_models=None, dataset="soccer"):
-        model_name = model.params["model"]
+    def predict(
+        self,
+        model: DBHP,
+        dataset_type="basketball",
+        min_episode_size=100,
+        naive_baselines=False,
+        gap_models=None,
+    ) -> Tuple[dict]:
+        model_type = model.params["model"]
         random.seed(1000)
 
-        if model.params["n_features"] == 2:
-            feature_types = ["_x", "_y"]
-        elif model.params["n_features"] == 6:
-            feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
+        feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
+        player_cols = [f"player{p}{x}" for p in range(10) for x in feature_types]
 
-        players = range(self.total_players)
-        input_cols = [f"player{p}{f}" for p in players for f in feature_types]
-
-        model_keys = ["pred"]
-        ret_keys = ["total_frames", "missing_frames"]
-        if model_name == "dbhp":
+        pred_keys = ["pred"]
+        if model_type == "dbhp":
             if model.params["deriv_accum"]:
-                model_keys += ["dap_f", "dap_b"]
+                pred_keys += ["dap_f"]
+                if model.params["missing_pattern"] != "forecast":
+                    pred_keys += ["dap_b"]
             if model.params["dynamic_hybrid"]:
-                model_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
-        if statistic_metrics:
-            model_keys += ["linear", "knn", "forward"]
+                if model.params["missing_pattern"] == "forecast":
+                    pred_keys += ["hybrid_d"]
+                else:
+                    pred_keys += ["hybrid_s", "hybrid_s2", "hybrid_d"]
+        if naive_baselines:
+            if model.params["missing_pattern"] == "forecast":
+                pred_keys += ["ffill"]
+            else:
+                pred_keys += ["linear", "knn", "ffill"]
 
-            metrics = ["speed", "step_change", "path_length"]
-            ret_keys += [f"{m}_{metric}" for m in model_keys for metric in metrics]
+        stat_keys = ["total_frames", "missing_frames"]
+        stat_keys += [f"{k}_{m}" for k in pred_keys for m in ["pe", "se", "sce", "ple"]]
 
-        ret_keys += [f"{m}_pe" for m in model_keys]
-        ret = {key: 0 for key in ret_keys}
+        stats = {k: 0 for k in stat_keys}
 
-        # Init results dataframes (predictions, mask)
-        df_dict = TraceHelper.init_pred_results(self.traces, model_keys, input_cols)
-        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
-            weights_cols = [f"player{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
-            hybrid_weight_df = self.traces.copy(deep=True)
-            hybrid_weight_df[weights_cols] = -1
+        # initialize resulting DataFrames
+        ret = dict()
+        ret["target"] = self.traces.copy(deep=True)
+        ret["mask"] = pd.DataFrame(-1, index=self.traces.index, columns=["episode"] + player_cols)
+        ret["mask"].loc[:, "episode"] = self.traces["episode"]
+        for k in pred_keys:
+            ret[k] = self.traces.copy(deep=True)
+
+        if model_type == "dbhp" and model.params["dynamic_hybrid"]:
+            lambda_types = ["_w0", "_w1"] if model.params["missing_pattern"] == "forecast" else ["_w0", "_w1", "_w2"]
+            lambda_cols = [f"{p}{w}" for p in range(10) for w in lambda_types]
+            ret["lambdas"] = pd.DataFrame(-1, index=self.traces.index, columns=lambda_cols)
 
         x_cols = [c for c in self.traces.columns if c.endswith("_x")]
         y_cols = [c for c in self.traces.columns if c.endswith("_y")]
-        input_xy_cols = [c for c in input_cols if c.endswith("_x") or c.endswith("_y")]
 
         if model.params["normalize"]:
-            self.traces[x_cols] /= self.ps[0]
-            self.traces[y_cols] /= self.ps[1]
-            self.ps = (1, 1)
+            self.traces[x_cols] /= self.pitch_size[0]
+            self.traces[y_cols] /= self.pitch_size[1]
+            self.pitch_size = (1, 1)
 
         episodes = [e for e in self.traces["episode"].unique() if e > 0]
         for episode in tqdm(episodes, desc="Episode"):
-            episode_traces = self.traces[self.traces["episode"] == episode]
-            if len(episode_traces) < self.ws:
+            ep_traces = self.traces[self.traces["episode"] == episode]
+            if len(ep_traces) < self.ws:
                 continue
-            episode_input = [torch.FloatTensor(episode_traces[input_cols].values)]
+            ep_player_traces = torch.FloatTensor(ep_traces[player_cols].values)
 
             with torch.no_grad():
-                episode_ret, episode_df_ret = TraceHelper.predict_episode(
-                    episode_input,
-                    ret_keys,
-                    model_keys,
-                    model,
-                    naive_baselines=statistic_metrics,
-                    gap_models=gap_models,
-                    dataset_type=dataset,
-                )
+                    ep_ret, ep_stats = TraceHelper.predict_episode(
+                        model,
+                        dataset_type,
+                        ep_player_traces,
+                        pred_keys=pred_keys,
+                        window_size=model.params["window_size"],
+                        min_window_size=min_episode_size,
+                        naive_baselines=naive_baselines,
+                        gap_models=gap_models,
+                    )
 
-            # Update results dataframes (episode_predictions, episode_mask)
-            TraceHelper.update_pred_results(df_dict, episode_traces.index, input_cols, input_xy_cols, episode_df_ret)
-            if model_name == "dbhp" and model.params["dynamic_hybrid"]:
-                weight_player_cols = [c.split("_x")[0] for c in input_cols if "_x" in c]
-                input_weight_cols = [f"{p}{w}" for p in weight_player_cols for w in ["_w0", "_w1", "_w2"]]
-                hybrid_weight_df.loc[episode_traces.index, input_weight_cols] = np.array(episode_df_ret["lambdas"])
+            # update resulting DataFrames
+            pos_cols = [c for c in player_cols if c[-2:] in ["_x", "_y"]]
+            if model.params["cartesian_accel"]:
+                dp_cols = player_cols
+            else:
+                dp_cols = [c for c in player_cols if c[-3:] not in ["_ax", "_ay"]]
 
-            for key in episode_ret:
-                ret[key] += episode_ret[key]
+            for k in pred_keys + ["target", "mask"]:
+                if k in ["pred", "target", "mask"]:
+                    ret[k].loc[ep_traces.index, dp_cols] = np.array(ep_ret[k])
+                else:
+                    ret[k].loc[ep_traces.index, pos_cols] = np.array(ep_ret[k])
 
-        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
-            self.ps = (28.65, 15.24)
-            self.traces[x_cols] *= self.ps[0]
-            self.traces[y_cols] *= self.ps[1]
+            if model_type == "dbhp" and model.params["dynamic_hybrid"]:
+                ep_players = [c[:-2] for c in player_cols if "_x" in c]
+                lambda_cols = [f"{p}{w}" for p in ep_players for w in lambda_types]
+                ret["lambdas"].loc[ep_traces.index, lambda_cols] = np.array(ep_ret["lambdas"])
 
-        if model_name == "dbhp" and model.params["dynamic_hybrid"]:
-            df_dict["lambdas_df"] = hybrid_weight_df
+            for key in ep_stats:
+                stats[key] += ep_stats[key]
 
-        return ret, df_dict
+        return ret, stats
 
 
 class NBADataAnimator:
-    def __init__(self, trace_dict: Dict[str, pd.DataFrame] = None, show_episodes=False, show_frames=False, masks=None):
-        self.trace_dict = trace_dict
+    def __init__(self, match_ret: Dict[str, pd.DataFrame] = None, show_episodes=False, show_frames=False, masks=None):
+        self.trace_dict = match_ret
         self.masks = masks
 
         self.total_players = 10

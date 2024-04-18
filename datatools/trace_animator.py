@@ -24,7 +24,7 @@ from models.utils import compute_camera_coverage
 class TraceAnimator:
     def __init__(
         self,
-        trace_dict: Dict[str, pd.DataFrame] = None,
+        match_ret: Dict[str, pd.DataFrame] = None,
         mask: pd.DataFrame = None,
         show_times=True,
         show_episodes=False,
@@ -38,7 +38,7 @@ class TraceAnimator:
         fps=10,
         play_speed=1,
     ):
-        self.trace_dict = trace_dict
+        self.trace_dict = match_ret
         self.mask = mask
 
         self.show_times = show_times
