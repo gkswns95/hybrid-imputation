@@ -31,6 +31,7 @@ from models.utils import *
 
 class TraceHelper:
     def __init__(self, traces: pd.DataFrame, events: pd.DataFrame = None, pitch_size: tuple = (108, 72)):
+    # def __init__(self, traces: pd.DataFrame, events: pd.DataFrame = None, pitch_size: tuple = (108, 72)):
         self.traces = traces.dropna(axis=1, how="all").copy()
         self.pass_triple = []  # (pass start index, target, pred)
         self.events = events
@@ -167,7 +168,7 @@ class TraceHelper:
         model: DBHP,
         dataset_type: str,
         player_traces: torch.Tensor,
-        ball_traces: torch.Tensor,
+        ball_traces: torch.Tensor = None,
         pred_keys: list = None,  # ["pred", "hybrid_s", "hybrid_s2", "hybrid_d", "linear", "knn", "ffill"]
         window_size=200,
         min_window_size=100,
@@ -326,7 +327,8 @@ class TraceHelper:
         # initialize resulting DataFrames
         ret = dict()
         ret["target"] = self.traces.copy(deep=True)
-        ret["mask"] = pd.DataFrame(-1, index=self.traces.index, columns=player_cols)
+        ret["mask"] = pd.DataFrame(-1, index=self.traces.index, columns=["episode"] + player_cols)
+        ret["mask"].loc[:, "episode"] = self.traces["episode"]
         for k in pred_keys:
             ret[k] = self.traces.copy(deep=True)
 
@@ -342,7 +344,7 @@ class TraceHelper:
             self.traces[x_cols] /= self.pitch_size[0]
             self.traces[y_cols] /= self.pitch_size[1]
             self.pitch_size = (1, 1)
-
+        
         for phase in self.traces["phase"].unique():
             phase_traces = self.traces[self.traces["phase"] == phase]
 
@@ -374,7 +376,7 @@ class TraceHelper:
                         model,
                         dataset_type,
                         ep_player_traces,
-                        ep_ball_traces,
+                        ep_ball_traces=ep_ball_traces,
                         pred_keys=pred_keys,
                         window_size=model.params["window_size"],
                         min_window_size=min_episode_size,
@@ -389,7 +391,7 @@ class TraceHelper:
                 else:
                     dp_cols = [c for c in phase_player_cols if c[-3:] not in ["_ax", "_ay"]]
 
-                for k in pred_keys:
+                for k in pred_keys + ["target", "mask"]:
                     if k in ["pred", "target", "mask"]:
                         ret[k].loc[ep_traces.index, dp_cols] = np.array(ep_ret[k])
                     else:
