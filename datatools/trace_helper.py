@@ -384,7 +384,7 @@ class TraceHelper:
                         gap_models=gap_models,
                     )
 
-                # Update resulting DataFrames
+                # update resulting DataFrames
                 pos_cols = [c for c in phase_player_cols if c[-2:] in ["_x", "_y"]]
                 if model.params["cartesian_accel"]:
                     dp_cols = phase_player_cols
