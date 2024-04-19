@@ -29,13 +29,17 @@ class BRITS(nn.Module):
         self.rits_b = RITS(self.params)
 
     def forward(self, data, mode="train", device="cuda:0"):
+        total_players = self.params["team_size"]
+        if self.params["dataset"] in ["soccer", "basketball"]:
+            total_players *= 2
+
         if "player_order" not in self.params:
             self.params["player_order"] = None
 
         if self.params["player_order"] == "shuffle":
-            player_data, player_orders = shuffle_players(data[0], n_players=self.params["team_size"] * 2)
+            player_data, player_orders = shuffle_players(data[0], n_players=total_players)
         elif mode == "test" or self.params["player_order"] == "xy_sort":  # sort players by x+y values
-            player_data, player_orders = sort_players(data[0], n_players=self.params["team_size"] * 2)
+            player_data, player_orders = sort_players(data[0], n_players=total_players)
         else:
             player_data, player_orders = data[0], None  # [bs, time, x] = [bs, time, players * feats]
         
@@ -69,7 +73,6 @@ class BRITS(nn.Module):
         ret = self.merge_ret(ret_f, ret_b, mode)
 
         if player_orders is not None:
-            total_players = self.params["team_size"] if self.params["dataset"] == "afootball" else self.params["team_size"] * 2
             ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
             ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
             ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")
@@ -113,7 +116,7 @@ class BRITS(nn.Module):
             return tensor_.index_select(1, indices)
 
         for key in ret:
-            if not key.endswith("_loss") and not key.endswith("missing_rate"):
+            if not key.endswith("_loss") and not key.endswith("_rate") and not key.endswith("ball"):
                 ret[key] = reverse_tensor(ret[key])
 
         return ret

@@ -22,4 +22,3 @@ python train.py \
 --cuda \
 --rnn_dim 512 \
 --dropout 0.0 \
---cartesian_accel \
