@@ -1,13 +1,15 @@
 import math
+from typing import Dict
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torch.autograd import Variable
 from torch.nn.parameter import Parameter
 
 from models.utils import reshape_tensor
-
+from typing import List
 
 class FeatureRegression(nn.Module):
     def __init__(self, input_size):
@@ -76,14 +78,15 @@ class RITS(nn.Module):
         self.params = params
 
         self.n_features = params["n_features"]
-        self.n_players = params["n_players"]
         self.dataset = params["dataset"]
 
         self.rnn_dim = params["rnn_dim"]
 
-        self.x_dim = self.n_features * self.n_players
+        self.x_dim = self.n_features * params["team_size"]
+        self.n_players = params["team_size"]
         if self.dataset in ["soccer", "basketball"]:
             self.x_dim *= 2
+            self.n_players *= 2
 
         self.rnn_cell = nn.LSTMCell(self.x_dim * 2, self.rnn_dim)
 
@@ -95,16 +98,19 @@ class RITS(nn.Module):
 
         self.weight_combine = nn.Linear(self.x_dim * 2, self.x_dim)
 
-    def forward(self, inputs):
-        ret = {"loss": 0}
+    def forward(self, ret: Dict[str, torch.Tensor], device="cuda:0") -> Dict[str, torch.Tensor] :
+        input = ret["input"]
+        target = ret["target"]
+        mask = ret["mask"]
+        delta = ret["delta"]
 
-        input = inputs["input"]
-        target = inputs["target"]
-        mask = inputs["mask"]
-        delta = inputs["delta"]
-
-        device = input.device
+        # device = input.device
         bs, seq_len = input.shape[:2]
+
+        input = input.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3) # [time, bs, players * feats]
+        mask = mask.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3)
+        delta = delta.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3)
+
 
         h = Variable(torch.zeros((bs, self.rnn_dim))).to(device)
         c = Variable(torch.zeros((bs, self.rnn_dim))).to(device)
@@ -117,7 +123,7 @@ class RITS(nn.Module):
 
         for t in range(seq_len):
             x_t = input[:, t, :]  # [bs, x_dim]
-            y_t = target[:, t, :]
+            # y_t = target[:, t, :]
             m_t = mask[:, t, :]
             d_t = delta[:, t, :]
 
@@ -147,46 +153,13 @@ class RITS(nn.Module):
             z_h_[:, t, :] = z_h
             c_h_[:, t, :] = c_h
 
-        total_loss += self.calc_mae_loss(x_h_, target, mask)
-        total_loss += self.calc_mae_loss(z_h_, target, mask)
-        total_loss += self.calc_mae_loss(c_h_, target, mask)
+        output_list = [x_h_, z_h_, c_h_]
+        target_xy = reshape_tensor(target, dataset_type=self.dataset)
+        mask_xy = reshape_tensor(mask, dataset_type=self.dataset)
+        for out in output_list:
+            pred_xy = reshape_tensor(out, dataset_type=self.dataset)  # [bs, total_players, -1]
+            total_loss += torch.sum(torch.abs(pred_xy - target_xy) * (1 - mask_xy)) / torch.sum((1 - mask_xy))
 
-        ret.update({"loss": total_loss, "pred": pred, "input": input, "target": target, "mask": mask})
+        ret.update({"loss": total_loss, "pred": pred})
+        
         return ret
-
-    def calc_mae_loss(self, pred, target, mask):
-        """
-        pred : [bs, time, feat_dim]
-        target : [bs, time, feat_dim]
-        mask : [bs, time, feat_dim]
-        """
-        loss = 0.0
-
-        if self.n_features == 2:
-            feature_types = ["pos"]
-            scale_fatcor = 1
-        elif self.n_features == 4:
-            feature_types = ["pos", "vel"]
-            scale_fatcor = 10
-        elif self.n_features == 6:
-            if self.params["cartesian_accel"]:
-                feature_types = ["pos", "vel", "cartesian_accel"]
-            else:
-                feature_types = ["pos", "vel", "speed", "accel"]
-            scale_fatcor = 10
-
-        for mode in feature_types:
-            pred_ = reshape_tensor(pred, mode=mode, dataset_type=self.dataset)  # [bs, total_players, -1]
-            target_ = reshape_tensor(target, mode=mode, dataset_type=self.dataset)
-            mask_ = reshape_tensor(mask, mode=mode, dataset_type=self.dataset)
-
-            mae_loss = torch.sum(torch.abs(pred_ - target_) * (1 - mask_)) / torch.sum((1 - mask_) + 1e-5)
-
-            if mode in ["accel", "speed"]:
-                loss += mae_loss * 0
-            elif mode in ["pos"]:
-                loss += mae_loss * scale_fatcor
-            else:
-                loss += mae_loss
-
-        return loss

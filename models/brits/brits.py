@@ -12,14 +12,12 @@ from models.utils import *
 class BRITS(nn.Module):
     def __init__(self, params, parser=None):
         super(BRITS, self).__init__()
-
         self.model_args = [
+            "team_size",
             "missing_pattern",
-            "n_players",
             "rnn_dim",
             "dropout",
             "cartesian_accel",
-            "xy_sort",
         ]
         self.params = parse_model_params(self.model_args, params, parser)
         self.params_str = get_params_str(self.model_args, params)
@@ -31,64 +29,50 @@ class BRITS(nn.Module):
         self.rits_b = RITS(self.params)
 
     def forward(self, data, mode="train", device="cuda:0"):
-        total_players = self.params["n_players"]
-        if self.params["dataset"] in ["soccer", "basketball"]:
-            total_players *= 2
+        if "player_order" not in self.params:
+            self.params["player_order"] = None
 
-        n_features = self.params["n_features"]
-        dataset = self.params["dataset"]
-
-        if self.params["xy_sort"]:
-            input_data, sort_idxs = sort_players(data[0], n_players=total_players)  # [bs, time, x_dim]
-            target_data = input_data.clone()
+        if self.params["player_order"] == "shuffle":
+            player_data, player_orders = shuffle_players(data[0], n_players=self.params["team_size"] * 2)
+        elif mode == "test" or self.params["player_order"] == "xy_sort":  # sort players by x+y values
+            player_data, player_orders = sort_players(data[0], n_players=self.params["team_size"] * 2)
         else:
-            if dataset == "football":  # Randomly permute player order for NFL dataset.
-                data[0] = shuffle_players(data[0], total_players)
-                data[1] = data[0].clone()
-            input_data = data[0]  # [bs, time, x_dim]
-            target_data = data[1]
+            player_data, player_orders = data[0], None  # [bs, time, x] = [bs, time, players * feats]
+        
+        ball_data = data[1] if self.params["dataset"] == "soccer" else None  # [bs, time, 2]
+        ret = {"target": player_data, "ball": ball_data}
 
-        if self.params["dataset"] == "soccer":
-            ball_data = data[2]
-        else:
-            ball_data = data[1]
-
-        data_dict = {"target": target_data, "ball": ball_data}
-        bs, seq_len = data_dict["target"].shape[:2]
-
-        mask = generate_mask(
-            data=data_dict,
+        mask, missing_rate = generate_mask(
+            data=ret,
+            sports=self.params["dataset"],
             mode=self.params["missing_pattern"],
-            missing_rate=random.randint(1, 9) * 0.1,
-            sports=dataset,
-        )
+            missing_rate=self.params["missing_rate"],
+        )  # [bs, time, players]
 
-        if self.params["missing_pattern"] == "camera":
-            time_gap = time_interval(mask, list(range(seq_len)), mode="camera")
-            mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, n_players]
-            mask = torch.repeat_interleave(mask, n_features, dim=-1)
-            time_gap = torch.repeat_interleave(time_gap, n_features, dim=-1)
-        else:
-            time_gap = time_interval(mask, list(range(seq_len)), mode="block")
-            mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)  # [1, time, n_players]
-            mask = torch.repeat_interleave(mask, n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x_dim]
-            time_gap = torch.repeat_interleave(time_gap, n_features, dim=-1).expand(bs, -1, -1)
+        time_gap = time_interval(mask, list(range(mask.shape[1])), mode="camera")
+        mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, team_size]
+        mask = torch.repeat_interleave(mask, 6, dim=-1)
+        time_gap = torch.repeat_interleave(time_gap, 6, dim=-1)
+        # mask = torch.repeat_interleave(mask, self.params["n_features"], dim=-1)
+        # time_gap = torch.repeat_interleave(time_gap, self.params["n_features"], dim=-1)
 
         if self.params["cuda"]:
             mask, time_gap = mask.to(device), time_gap.to(device)
 
-        data_dict["mask"] = mask
-        data_dict["input"] = input_data * mask  # masking missing values
-        data_dict["delta"] = time_gap
+        ret["mask"] = mask
+        ret["input"] = player_data * mask  # masking missing values
+        ret["missing_rate"] = missing_rate
+        ret["delta"] = time_gap
 
-        ret_f = self.rits_f(data_dict)
-        ret_b = self.reverse(self.rits_b(self.reverse(data_dict)))
+        ret_f = self.rits_f(ret, device=device)
+        ret_b = self.reverse(self.rits_b(self.reverse(ret), device=device))
         ret = self.merge_ret(ret_f, ret_b, mode)
 
-        if self.params["xy_sort"]:
-            ret["pred"] = sort_players(ret["pred"], sort_idxs, total_players, mode="restore")
-            ret["target"] = sort_players(ret["target"], sort_idxs, total_players, mode="restore")
-            ret["mask"] = sort_players(ret["mask"], sort_idxs, total_players, mode="restore")
+        if player_orders is not None:
+            total_players = self.params["team_size"] if self.params["dataset"] == "afootball" else self.params["team_size"] * 2
+            ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
+            ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
+            ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")
 
         return ret
 
@@ -129,7 +113,7 @@ class BRITS(nn.Module):
             return tensor_.index_select(1, indices)
 
         for key in ret:
-            if not key.endswith("_loss"):
+            if not key.endswith("_loss") and not key.endswith("missing_rate"):
                 ret[key] = reverse_tensor(ret[key])
 
         return ret

@@ -215,21 +215,15 @@ def compute_deltas(mask: np.ndarray, bidirectional=True) -> Tuple[np.ndarray]:
 
 def time_interval(mask, time_gap, direction="f", mode="block"):
     if direction == "b":
-        mask = np.flip(deepcopy(mask), axis=[0])  # [bs, time, players]
+        mask = np.flip(deepcopy(mask), axis=[0])  
 
-    deltas = np.zeros(mask.shape)
-    if mode == "block":
-        for t in range(1, mask.shape[0]):
+    deltas = np.zeros(mask.shape) # [bs, time, players]
+    for batch in range(deltas.shape[0]):
+        masks_ = mask[batch]  # [time, players]
+        for t in range(1, mask.shape[1]):
             gap = time_gap[t] - time_gap[t - 1]
-            for p, m in enumerate(mask[t - 1]):
-                deltas[t, p] = gap + deltas[t - 1, p] if m == 0 else gap
-    elif mode == "camera":
-        for batch in range(deltas.shape[0]):
-            masks_ = mask[batch]  # [time, players]
-            for t in range(1, mask.shape[1]):
-                gap = time_gap[t] - time_gap[t - 1]
-                for p, m in enumerate(masks_[t - 1]):
-                    deltas[batch, t, p] = gap + deltas[batch, t - 1, p] if m == 0 else gap
+            for p, m in enumerate(masks_[t - 1]):
+                deltas[batch, t, p] = gap + deltas[batch, t - 1, p] if m == 0 else gap
 
     return torch.tensor(deltas, dtype=torch.float32)
 

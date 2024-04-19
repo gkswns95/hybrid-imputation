@@ -1,24 +1,25 @@
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 4002 \
+--trial 99 \
 --dataset soccer \
 --model brits \
---target_type imputation \
 --missing_pattern camera \
---n_players 11 \
+--missing_rate 0.5 \
+--normalize \
+--flip_pitch \
+--player_order xy_sort \
+--team_size 11 \
 --n_features 2 \
---train_metrica \
---valid_metrica \
---rnn_dim 512 \
---dropout 0.0 \
---cartesian_accel \
---xy_sort \
+--window_size 200 \
+--window_stride 5 \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
---batch_size 16 \
+--batch_size 32 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
 --cuda \
---normalize \
---flip_pitch \
+--rnn_dim 512 \
+--dropout 0.0 \
+--cartesian_accel \
