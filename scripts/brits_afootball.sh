@@ -1,22 +1,23 @@
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 4006 \
---dataset football \
+--trial 99 \
+--dataset afootball \
 --model brits \
---target_type imputation \
 --missing_pattern playerwise \
---n_players 6 \
+--missing_rate 0.5 \
+--normalize \
+--player_order xy_sort \
+--team_size 6 \
 --n_features 2 \
---train_nfl \
---valid_nfl \
---rnn_dim 512 \
---dropout 0.0 \
---cartesian_accel \
+--window_size 50 \
+--window_stride 5 \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
---batch_size 16 \
+--batch_size 32 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
 --cuda \
---flip_pitch \
+--rnn_dim 512 \
+--dropout 0.0 \
