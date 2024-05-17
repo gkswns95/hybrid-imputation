@@ -25,23 +25,6 @@ def printlog(line):
 
 
 def loss_str(loss_dict: dict):
-    # loss_dict = [(k, v) for k, v in losses.items() if k.endswith("_loss")]
-    # dist_dict = [(k, v) for k, v in losses.items() if k.endswith("_pe")]
-    # acc_dict = [(k, v) for k, v in losses.items() if k.endswith("accuracy")]
-
-    # ret = "\n---------------Losses---------------\n"
-    # for key, value in loss_dict:
-    #     ret += " {}: {:.4f} |".format(key, np.mean(value))
-
-    # if len(dist_dict):
-    #     ret += "\n---------------Dists---------------\n"
-    #     for key, value in dist_dict:
-    #         ret += " {}: {:.4f} |".format(key, np.mean(value))
-    # if len(acc_dict):
-    #     ret += "\n---------------Acc---------------\n"
-    #     for key, value in acc_dict:
-    #         ret += " {}: {:.4f} |".format(key, np.mean(value))
-
     ret = ""
     for k, v in loss_dict.items():
         if k.endswith("_loss") or k.endswith("_pe"):
@@ -104,11 +87,6 @@ def run_epoch(
 
         for k in loss_dict:
             loss_dict[k] += [ret[k].item()] if k == "total_loss" else [ret[k]]
-
-        # for k in dist_dict:
-        #     dist_dict[k] += [ret[k].item()]
-
-        # loss_dict.update(dist_dict)
 
         if train:
             loss = ret["total_loss"]
@@ -367,7 +345,6 @@ if __name__ == "__main__":
         epoch_time = time.time() - start_time
         printlog("Time:\t{:.2f}s".format(epoch_time))
 
-        # valid_loss = sum([value for key, value in valid_losses.items() if key.endswith("loss")])
         valid_loss = valid_losses["total_loss"]
         if args.model == "dbhp" and model.module.params["dynamic_hybrid"]:
             valid_pe = valid_losses["hybrid_d_pe"]
