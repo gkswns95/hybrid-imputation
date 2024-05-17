@@ -23,15 +23,14 @@ class Discriminator(nn.Module):
         self.params = params
 
         self.n_features = params["n_features"]  # number of features per each player
-        self.n_players = params["n_players"]  # number of players per each team
+        self.team_size = params["team_size"]  # number of players per team
+        self.n_players = self.team_size if self.dataset == "afootball" else self.team_size * 2
 
         self.hidden_dim = params["discrim_rnn_dim"]
-        if params["dataset"] in ["soccer", "basketball"]:
-            y_dim = (self.n_players * 2) * self.n_features
-        else:
-            y_dim = self.n_players * self.n_features
-        self.action_dim = y_dim
-        self.state_dim = y_dim
+        self.y_dim = self.n_players * self.n_features
+
+        self.action_dim = self.y_dim
+        self.state_dim = self.y_dim
         self.gpu = params["cuda"]
         self.num_layers = params["discrim_num_layers"]
 
@@ -58,15 +57,13 @@ class NAOMIImputer(nn.Module):
         super(NAOMIImputer, self).__init__()
         self.params = params
 
-        self.n_features = params["n_features"]  # number of features per each player
-        self.n_players = params["n_players"]  # number of players per each team
-        self.stochastic = params["stochastic"]
         self.dataset = params["dataset"]
+        self.n_features = params["n_features"]  # number of features per each player
+        self.team_size = params["team_size"]  # number of players per team
+        self.n_players = self.team_size if self.dataset == "afootball" else self.team_size * 2
+        self.stochastic = params["stochastic"]
 
-        if self.dataset in ["soccer", "basketball"]:
-            self.y_dim = (self.n_players * 2) * self.n_features
-        else:
-            self.y_dim = self.n_players * self.n_features
+        self.y_dim = self.n_players * self.n_features
 
         self.rnn_dim = params["rnn_dim"]
         self.n_layers = params["n_layers"]

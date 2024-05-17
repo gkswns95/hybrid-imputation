@@ -14,8 +14,7 @@ class NAOMI(nn.Module):
     def __init__(self, params, parser=None):
         super(NAOMI, self).__init__()
         self.model_args = [
-            "missing_pattern",
-            "n_players",
+            "team_size",
             "rnn_dim",
             "dec1_dim",
             "dec2_dim",
@@ -25,7 +24,6 @@ class NAOMI(nn.Module):
             "n_layers",
             "n_highest",
             "cartesian_accel",
-            "xy_sort",
             "stochastic",
         ]
         self.params = parse_model_params(self.model_args, params, parser)
@@ -43,75 +41,67 @@ class NAOMI(nn.Module):
         ret = {"loss": 0, "pos_error": 0}
 
         n_features = self.params["n_features"]
-        dataset = self.params["dataset"]
+        n_players = self.params["team_size"] if self.params["dataset"] == "afootball" else self.params["team_size"] * 2
 
-        if dataset == "soccer":
-            total_players = 22
-        elif dataset == "basketball":
-            total_players = 10
-        else:  # e.g. "football"
-            total_players = 6
-
-        if self.params["xy_sort"]:
-            input_data, sort_idxs = sort_players(data[0], n_players=total_players)  # [bs, time, x]
-            target_data = input_data.clone()
+        if self.params["player_order"] == "shuffle":
+            player_data, player_orders = shuffle_players(data[0], n_players=n_players)
+        elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
+            player_data, player_orders = sort_players(data[0], n_players=n_players)
         else:
-            if dataset == "football":  # randomly permute player order for NFL dataset.
-                data[0] = shuffle_players(data[0], total_players)
-                data[1] = data[0].clone()
-            input_data = data[0]  # [bs, time, x]
-            target_data = data[1]
+            player_data, player_orders = data[0], None  # [bs, time, players * 6]
+        
+        ret["target"] = player_data.clone()
 
-        bs, seq_len = input_data.shape[0], input_data.shape[1]
+        bs, seq_len = player_data.shape[:2]
 
-        mask = generate_mask(
+        mask, missing_rate = generate_mask(
             data=ret,
+            sports=self.params["dataset"],
             mode=self.params["missing_pattern"],
-            window_size=seq_len,
-            missing_rate=random.randint(1, 9) * 0.1,
-            sports=dataset,
-        )
-        mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)
-        mask = torch.repeat_interleave(mask, n_features, dim=-1).expand(bs, -1, -1)  # [bs, time, x]
+            missing_rate=self.params["missing_rate"],
+        )  # [bs, time, players]
 
-        if self.params["cuda"]:
-            input_data, target_data, mask = input_data.to(device), target_data.to(device), mask.to(device)
+        mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, players]
+        mask = torch.repeat_interleave(mask, 6, dim=-1).to(device)  # [bs, time, players * 6]
 
-        masked_input = input_data * mask
+        masked_input = (player_data * mask).reshape(bs, seq_len, n_players, -1)[..., : n_features].flatten(2, 3) # [bs, time, x] = [bs, time, players * feats]
+        target_data = player_data.reshape(bs, seq_len, n_players, -1)[..., : n_features].flatten(2, 3)
+        mask = mask.reshape(bs, seq_len, n_players, -1)[..., : n_features].flatten(2, 3)
 
-        masked_input = masked_input.transpose(0, 1)  # [bs, time, x] to [time, bs, x]
+
+        masked_input = masked_input.transpose(0, 1).to(device)  # [bs, time, x] to [time, bs, x]
         target_data = target_data.transpose(0, 1)
-        mask = mask.transpose(0, 1)
+        mask = mask.transpose(0, 1).to(device)
 
         if self.params["missing_pattern"] == "playerwise":
-            masked_input = masked_input.reshape(seq_len, bs, total_players, -1)  # [time, bs, 22, feat_dim]
-            target_data = target_data.reshape(seq_len, bs, total_players, -1)
-            mask = mask.reshape(seq_len, bs, total_players, -1)
+            masked_input = masked_input.reshape(seq_len, bs, n_players, -1)  # [time, bs, players, feats]
+            target_data = target_data.reshape(seq_len, bs, n_players, -1)
+            mask = mask.reshape(seq_len, bs, n_players, -1)
 
-            has_value = torch.ones_like(mask, dtype=torch.float32)  # [time, bs, 22, feat_dim]
+            has_value = torch.ones_like(mask, dtype=torch.float32)  # [time, bs, players, feats]
             has_value = has_value * mask
-            has_value = has_value[..., 0, None]  # [time, bs, 22, 1]
+            has_value = has_value[..., 0, None]  # [time, bs, players, 1]
 
-            input_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 22, 1+feat_dim]
+            player_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, players, 1+feats]
 
-        elif self.params["missing_pattern"] == "uniform":  # e.g. block all features.
+        elif self.params["missing_pattern"] == "uniform":  
             has_value = torch.ones(seq_len, bs, 1)
             if self.params["cuda"]:
                 has_value = has_value.to(device)
             has_value = has_value * mask[..., 0, None]  # [time, bs, 1]
-            input_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 1+feat_dim]
+            player_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 1+feats]
 
         if teacher_forcing:
-            batch_loss, pos_error = self.model(input_data, target_data)
+            batch_loss, pos_error = self.model(player_data, target_data)
             ret["total_loss"] = batch_loss
             ret["pred_pe"] = pos_error
         else:
             data_list = []
             for j in range(seq_len):
-                data_list.append(input_data[j : j + 1])
-            pred = self.model.sample(data_list)  # [time, bs, feat_dim]
+                data_list.append(player_data[j : j + 1])
+            pred = self.model.sample(data_list)  # [time, bs, feats]
 
-            pred = pred.transpose(0, 1)  # [bs, time, feat_dim]
+            pred = pred.transpose(0, 1)  # [bs, time, feats]
             if self.params["missing_pattern"] == "playerwise":
                 target_ = target_data.flatten(2, 3).transpose(0, 1)
                 mask_ = mask.flatten(2, 3).transpose(0, 1)
@@ -122,7 +112,13 @@ class NAOMI(nn.Module):
             batch_loss = self.model.calc_mae_loss(pred, target_)
 
             aggfunc = "mean" if mode == "train" else "sum"
-            pos_error = calc_pos_error(pred, target_, mask_, n_features=n_features, aggfunc=aggfunc, dataset=dataset)
+            pos_error = calc_pos_error(
+                pred,
+                target_, 
+                mask_, 
+                n_features=n_features, 
+                aggfunc=aggfunc, 
+                dataset=self.params["dataset"])
 
             ret["total_loss"] = batch_loss
             ret["pred_pe"] = pos_error
@@ -130,36 +126,37 @@ class NAOMI(nn.Module):
             ret["pred"] = pred
             ret["target"] = target_
             ret["mask"] = mask_
+            ret["missing_rate"] = missing_rate
 
-            if self.params["xy_sort"]:
-                ret["pred"] = sort_players(ret["pred"], sort_idxs, total_players, mode="restore")
-                ret["target"] = sort_players(ret["target"], sort_idxs, total_players, mode="restore")
-                ret["mask"] = sort_players(ret["mask"], sort_idxs, total_players, mode="restore")
-
-        return ret
-
-    def forward2(self, input_dict, device="cuda:0"):
-        ret = {}
-
-        masked_input = input_dict["input"].transpose(0, 1)  # [time, bs, feat_dim]
-        target = input_dict["target"].transpose(0, 1)
-        mask = input_dict["mask"].transpose(0, 1)
-
-        seq_len, bs = target.shape[:2]
-
-        has_value = torch.ones(seq_len, bs, 1)
-        if self.params["cuda"]:
-            has_value = has_value.to(device)
-        has_value = has_value * mask[..., 0, None]  # [time, bs, 1]
-        input_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 1+feat_dim]
-
-        data_list = []
-        for j in range(seq_len):
-            data_list.append(input_data[j : j + 1])
-        pred = self.model.sample(data_list)  # [time, bs, feat_dim]
-
-        ret["pred"] = pred.transpose(0, 1)  # [bs, time, feat_dim]
-        ret["target"] = target.transpose(0, 1)
-        ret["mask"] = mask.transpose(0, 1)
+        if player_orders is not None:
+            ret["pred"] = sort_players(ret["pred"], player_orders, n_players, mode="restore")
+            ret["target"] = sort_players(ret["target"], player_orders, n_players, mode="restore")
+            ret["mask"] = sort_players(ret["mask"], player_orders, n_players, mode="restore")
 
         return ret
+
+    # def forward2(self, input_dict, device="cuda:0"):
+    #     ret = {}
+
+    #     masked_input = input_dict["input"].transpose(0, 1)  # [time, bs, feats]
+    #     target = input_dict["target"].transpose(0, 1)
+    #     mask = input_dict["mask"].transpose(0, 1)
+
+    #     seq_len, bs = target.shape[:2]
+
+    #     has_value = torch.ones(seq_len, bs, 1)
+    #     if self.params["cuda"]:
+    #         has_value = has_value.to(device)
+    #     has_value = has_value * mask[..., 0, None]  # [time, bs, 1]
+    #     player_data = torch.cat([has_value, masked_input], dim=-1)  # [time, bs, 1+feats]
+
+    #     data_list = []
+    #     for j in range(seq_len):
+    #         data_list.append(player_data[j : j + 1])
+    #     pred = self.model.sample(data_list)  # [time, bs, feats]
+
+    #     ret["pred"] = pred.transpose(0, 1)  # [bs, time, feats]
+    #     ret["target"] = target.transpose(0, 1)
+    #     ret["mask"] = mask.transpose(0, 1)
+
+    #     return ret

@@ -1,14 +1,25 @@
 #!/bin/bash
 python train.py \
---trial 5000 \
+--trial 9999 \
 --dataset soccer \
 --model naomi \
---target_type imputation \
 --missing_pattern uniform \
---n_players 11 \
+--missing_rate 0.5 \
+--normalize \
+--flip_pitch \
+--player_order xy_sort \
+--team_size 11 \
 --n_features 2 \
---train_metrica \
---valid_metrica \
+--window_size 200 \
+--window_stride 5 \
+--n_epochs 100 \
+--start_lr 1e-3 \
+--min_lr 1e-5 \
+--batch_size 128 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 100 \
+--cuda \
 --rnn_dim 300 \
 --dec1_dim 200 \
 --dec2_dim 200 \
@@ -18,17 +29,4 @@ python train.py \
 --n_layers 2 \
 --n_highest 4 \
 --cartesian_accel \
---xy_sort \
 --stochastic \
---n_epochs 100 \
---start_lr 1e-3 \
---min_lr 1e-5 \
---batch_size 64 \
---print_every_batch 50 \
---save_every_epoch 50 \
---seed 100 \
---clip 10 \
---max_iter_num 80000 \
---cuda \
---normalize \
---flip_pitch \

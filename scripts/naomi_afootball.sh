@@ -1,31 +1,31 @@
 #!/bin/bash
 python train.py \
---trial 5002 \
---dataset football \
+--trial 9999 \
+--dataset afootball \
 --model naomi \
---target_type imputation \
 --missing_pattern uniform \
---n_players 6 \
+--missing_rate 0.5 \
+--normalize \
+--player_order xy_sort \
+--team_size 6 \
 --n_features 2 \
---train_nfl \
---valid_nfl \
+--window_size 200 \
+--window_stride 5 \
+--n_epochs 100 \
+--start_lr 1e-3 \
+--min_lr 1e-5 \
+--batch_size 128 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 100 \
+--cuda \
 --rnn_dim 300 \
 --dec1_dim 200 \
 --dec2_dim 200 \
 --dec4_dim 200 \
 --dec8_dim 200 \
 --dec16_dim 200 \
---n_layers 3 \
---n_highest 16 \
---stochastic \
+--n_layers 2 \
+--n_highest 4 \
 --cartesian_accel \
---n_epochs 100 \
---start_lr 1e-3 \
---min_lr 1e-5 \
---batch_size 64 \
---print_every_batch 50 \
---save_every_epoch 50 \
---seed 100 \
---clip 10 \
---max_iter_num 80000 \
---cuda \
+--stochastic \

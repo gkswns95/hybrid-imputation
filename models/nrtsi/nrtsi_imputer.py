@@ -211,7 +211,7 @@ class NRTSIImputer(nn.Module):
     def __init__(self, params):
         super().__init__()
 
-        self.n_players = params["n_players"]  # Number of players per each team
+        self.n_players = params["team_size"]  # Number of players per each team
 
         if params["missing_pattern"] == "playerwise":
             self.x_dim = params["n_features"]

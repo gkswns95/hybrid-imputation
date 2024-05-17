@@ -121,20 +121,25 @@ def generate_mask(
         valid_frames = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
 
     if mode == "uniform":  # assert the first and the last frames are not missing
-        if sports == "afootball":
-            window_size = player_data.shape[1]
-            mask = np.ones((window_size, n_players))
-            # missing_len = random.randint(40, 49)
-            missing_len = int(window_size * missing_rate)
-            mask[random.sample(range(1, window_size - 1), missing_len)] = 0
+        mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        window_size = player_data.shape[1]
+        missing_len = int(window_size * missing_rate)
 
-        else:
-            mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
-            missing_frames = (valid_frames * missing_rate).astype(int)  # [bs], number of missing values per player
-            start_idxs = np.random.randint(1, valid_frames - missing_len - 1)
-            end_idxs = start_idxs + missing_len
-            for i in range(mask.shape[0]):
-                mask[i, start_idxs[i] : end_idxs[i]] = 0
+        mask[:, random.sample(range(1, window_size - 1), missing_len)] = 0
+        # if sports == "afootball":
+        #     window_size = player_data.shape[1]
+        #     mask = np.ones((window_size, n_players))
+        #     # missing_len = random.randint(40, 49)
+        #     missing_len = int(window_size * missing_rate)
+        #     mask[random.sample(range(1, window_size - 1), missing_len)] = 0
+
+        # else:
+        #     mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        #     missing_frames = (valid_frames * missing_rate).astype(int)  # [bs], number of missing values per player
+        #     start_idxs = np.random.randint(1, valid_frames - missing_len - 1)
+        #     end_idxs = start_idxs + missing_len
+        #     for i in range(mask.shape[0]):
+        #         mask[i, start_idxs[i] : end_idxs[i]] = 0
 
     elif mode == "forecast":
         mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
