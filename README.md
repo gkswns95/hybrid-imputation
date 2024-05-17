@@ -7,7 +7,7 @@ The code corresponding to the paper “Multi-Agent Trajectory Imputation Using D
 
 The code is written with PyTorch v1.9.0 (Python 3.8.18).
 
-![overview](images/overview.png)<br>
+![overview](img/overview.png)<br>
 
 ## Setup
 1. **Clone this repository using the following command:**
@@ -54,4 +54,4 @@ We have also implemented code for analyzing model performance by visualizing imp
 - **Animation**
     - This code is for animating imputed trajectories. You should run the evaluating code first. The ground-truth of the players' trajectories is represented as circles with numbers, whereas the imputed trajectories are represented as circles with bounding boxes. Additionally, the numbers on top of the bounding boxes indicate the error between the correct and predicted trajectories, calculated as the L2-distance.
       - Example of animation result (Soccer)
-      	![soccer_example](examples/soccer_example.gif)<br>
+      	![soccer_example](img/soccer_example.gif)<br>

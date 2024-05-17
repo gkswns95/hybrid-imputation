@@ -1,26 +1,28 @@
-import os, sys
-import torch
-import numpy as np
-import pandas as pd
-
-import matplotlib.pyplot as plt
-import datatools.matplotsoccer as mps
-import seaborn as sns
-
+import os
+import sys
 from collections import Counter
 from typing import Dict
-from models.utils import reshape_tensor, calc_trace_dist, get_dataset_config
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import torch
+
+import datatools.matplotsoccer as mps
+from models.utils import calc_pos_error, get_dataset_config, reshape_tensor
 
 if not os.getcwd() in sys.path:
     sys.path.append(os.getcwd())
 
+
 class VisualizeHelper:
     def __init__(
         self,
-        trial : str,
-        df_dict : Dict[str, pd.DataFrame],
-        plot_mode : str,
-        dataset : str,
+        trial: str,
+        df_dict: Dict[str, pd.DataFrame],
+        plot_mode: str,
+        dataset: str,
         helper,
     ):
         self.trial = trial
@@ -36,11 +38,11 @@ class VisualizeHelper:
             players = helper.team1_players + helper.team2_players
         elif dataset == "basketball":
             players = ["player" + str(i) for i in range(helper.total_players)]
-        
+
         self.p_cols = [f"{p}{f}" for p in players for f in ["_x", "_y"]]
-        if "train_hybrid_df" in df_dict.keys():
+        if "hybrid_df" in df_dict.keys():
             self.w_cols = [f"{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
-    
+
     def valid_episodes(self):
         episodes = self.traces["episode"].unique()
 
@@ -70,16 +72,18 @@ class VisualizeHelper:
             "tmp5": "KNN",
              })
         elif self.mode == "dist_heatmap":
-            pred_keys.update({
-            "pred": "STRNN-DP",
-            "physics_f": "STRNN-DAP-F",
-            "physics_b": "STRNN-DAP-B",
-            "static_hybrid2": "STRNN-DBHP-S",
-            "train_hybrid": "STRNN-DBHP-D",
-            })
+            pred_keys.update(
+                {
+                    "pred": "STRNN-DP",
+                    "dap_f": "STRNN-DAP-F",
+                    "dap_b": "STRNN-DAP-B",
+                    "hybrid_s2": "STRNN-DBHP-S",
+                    "hybrid_d": "STRNN-DBHP-D",
+                }
+            )
         elif self.mode == "weights_heatmap":
-            pred_keys["train_hybrid_weights"] = "train_hybrid_weights"
-        
+            pred_keys["lambdas"] = "lambdas"
+
         pred_keys.update({"target": "GroundTruth", "mask": "mask"})
 
         return pred_keys, fs
@@ -89,24 +93,35 @@ class VisualizeHelper:
         for i, (key, title) in enumerate(self.pred_keys.items()):
             if key == "mask":
                 continue
-            ### debug ###
+
+            # For debugging
             if key.startswith("tmp"):
                 key = "linear"
             ax = self.fig.add_subplot(2, 4, i)
             ax.set_xlim(0, ps[0])
             ax.set_ylim(0, ps[1])
-            ### debug ###
 
-            if self.dataset=="soccer":
+            if self.dataset == "soccer":
                 mps.field("blue", self.fig, ax, show=False)
                 s1 = 0.8
                 s2 = 3
                 lw = 0.5
-                c = ["#7D3C98", "#00A591", "#3B3B98", "#E89B98", "#FAB5DA",
-                    "#FF5733", "#33FF57", "#5733FF", "#FFFF33", "#33FFFF", "#FF33FF"]
+                c = [
+                    "#7D3C98",
+                    "#00A591",
+                    "#3B3B98",
+                    "#E89B98",
+                    "#FAB5DA",
+                    "#FF5733",
+                    "#33FF57",
+                    "#5733FF",
+                    "#FFFF33",
+                    "#33FFFF",
+                    "#FF33FF",
+                ]
                 # plt.subplots_adjust(wspace=0.1)
-            elif self.dataset=="basketball":
-                court = plt.imread("basketball_court.png")
+            elif self.dataset == "basketball":
+                court = plt.imread("img/basketball_court.png")
                 s1 = 10
                 s2 = 20
                 lw = 1.5
@@ -116,32 +131,51 @@ class VisualizeHelper:
             w_traces = self.pred_dict[f"window_{key}"]
             w_mask = self.pred_dict["window_mask"]
             for i, k in enumerate(range(n_players // 2)):
-                obs_idxs = np.where((w_mask[:,2*k] != 0) | (w_mask[:,2*k+1] != 0))
+                obs_idxs = np.where((w_mask[:, 2 * k] != 0) | (w_mask[:, 2 * k + 1] != 0))
                 missing_idxs = np.setdiff1d(np.arange(w_traces.shape[0]), obs_idxs)
 
-                ax.scatter(w_traces[missing_idxs,2*k], w_traces[missing_idxs,2*k+1], marker="o", color=c[i], s=s1, alpha=0.6, zorder=2)
-                ax.plot(w_traces[:,2*k], w_traces[:,2*k+1], color=c[i], linewidth=lw, alpha=1, zorder=2)
-                ax.scatter(w_traces[0,2*k], w_traces[0,2*k+1], marker="o", color="black", s=s2, alpha=1, zorder=4) # starting point
+                ax.scatter(
+                    w_traces[missing_idxs, 2 * k],
+                    w_traces[missing_idxs, 2 * k + 1],
+                    marker="o",
+                    color=c[i],
+                    s=s1,
+                    alpha=0.6,
+                    zorder=2,
+                )
+                ax.plot(w_traces[:, 2 * k], w_traces[:, 2 * k + 1], color=c[i], linewidth=lw, alpha=1, zorder=2)
+                ax.scatter(
+                    w_traces[0, 2 * k], w_traces[0, 2 * k + 1], marker="o", color="black", s=s2, alpha=1, zorder=4
+                )  # starting point
 
-                ax.tick_params(axis="both", which="both", bottom=False, top=False, left=False, right=False, labelbottom=False, labelleft=False)
-                ax.set_title(title.format(i+1), fontsize=20, loc="center")
+                ax.tick_params(
+                    axis="both",
+                    which="both",
+                    bottom=False,
+                    top=False,
+                    left=False,
+                    right=False,
+                    labelbottom=False,
+                    labelleft=False,
+                )
+                ax.set_title(title.format(i + 1), fontsize=20, loc="center")
 
-    def plot_train_hybrid_weights(self):
+    def plot_hybrid_weights(self):
         mask = self.pred_dict["window_mask"]
-        hybrid_weights = self.pred_dict["window_train_hybrid_weights"]
+        lambdas = self.pred_dict["window_lambdas"]
 
-        m = reshape_tensor(mask, dataset=self.dataset)
+        m = reshape_tensor(mask, dataset_type=self.dataset)
         m = m[..., 1].squeeze(-1)
         m = np.array((m == 1))
 
         for i, title in enumerate(["STRNN-DP", "STRNN-DAP-F", "STRNN-DAP-B"]):
-            ax = self.fig.add_subplot(1, 4, i+1)
+            ax = self.fig.add_subplot(1, 4, i + 1)
 
-            sns.heatmap(hybrid_weights[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax)
-            
+            sns.heatmap(lambdas[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax)
+
             ax.set_xlabel("Agents", fontsize=12)
             ax.set_ylabel("Timesteps", fontsize=12)
-            ax.set_title(title.format(i+1), fontsize=20, loc="center")
+            ax.set_title(title.format(i + 1), fontsize=20, loc="center")
 
             ax.set_yticks([0, 50, 100, 150, 200])
             ax.set_yticklabels([0, 50, 100, 150, 200], rotation=0)
@@ -151,24 +185,24 @@ class VisualizeHelper:
     def plot_dist_heatmap(self):
         target = self.pred_dict["window_target"]
         mask = self.pred_dict["window_mask"]
-        
+
         i = 0
-        for (key, title) in self.pred_keys.items():
+        for key, title in self.pred_keys.items():
             if key in ["target", "mask"]:
                 continue
 
-            ax = self.fig.add_subplot(1, 6, i+1)
-        
+            ax = self.fig.add_subplot(1, 6, i + 1)
+
             pred = self.pred_dict[f"window_{key}"]
 
-            pred_dist = calc_trace_dist(pred, target, mask, rescale=False, aggfunc="tensor", dataset=self.dataset)
+            pred_dist = calc_pos_error(pred, target, mask, upscale=False, aggfunc="tensor", dataset=self.dataset)
 
-            m = reshape_tensor(mask, dataset=self.dataset)
+            m = reshape_tensor(mask, dataset_type=self.dataset)
             m = m[..., 1].squeeze(-1)
             m = np.array((m == 1))
 
             sns.heatmap(pred_dist, cmap="viridis", cbar=True, mask=m, ax=ax)
-            
+
             ax.set_title(f"{title} L2 distance")
             ax.set_xlabel("Agents", fontsize=12)
             ax.set_ylabel("Timesteps", fontsize=12)
@@ -177,10 +211,10 @@ class VisualizeHelper:
             ax.set_yticks([0, 50, 100, 150, 200])
             ax.set_yticklabels([0, 50, 100, 150, 200], rotation=0)
             # ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
-            ax.set_title(title.format(i+1), fontsize=18, loc="center", y=1.05)
+            ax.set_title(title.format(i + 1), fontsize=18, loc="center", y=1.05)
 
             i += 1
-    
+
     def plot_run(self, epi_idx):
         e = self.val_epi_list[epi_idx]
         path = f"plots/{self.dataset}/{self.trial}/{self.mode}/episode_{e}"
@@ -197,7 +231,7 @@ class VisualizeHelper:
         self.pred_dict = {}
         for seq, i in enumerate(range(epi_traces.shape[0] // self.wlen + 1)):
             self.fig = plt.figure(figsize=fs, dpi=300)
-            
+
             i_from = self.wlen * i
             i_to = self.wlen * (i + 1)
 
@@ -205,24 +239,24 @@ class VisualizeHelper:
                 continue
 
             # Processing window inputs
-            for key in (self.pred_keys.keys()):
-                ### debug ###
+            for key in self.pred_keys.keys():
+                # For debugging
                 if key.startswith("tmp"):
                     continue
-                ### debug ###
-                cols = self.w_cols if key == "train_hybrid_weights" else self.p_cols
+
+                cols = self.w_cols if key == "lambdas" else self.p_cols
                 epi_df = self.df_dict[f"{key}_df"][self.df_dict[f"{key}_df"]["episode"] == e][cols]
-                epi_df = epi_df[i_from:i_to].replace(-1, np.nan)    
+                epi_df = epi_df[i_from:i_to].replace(-1, np.nan)
                 self.pred_dict[f"window_{key}"] = torch.tensor(epi_df.dropna(axis=1).values)
-            
+
             # Plotting start
             if self.mode == "imputed_traj":
                 self.plot_trajectories()
             elif self.mode == "dist_heatmap":
                 self.plot_dist_heatmap()
             elif self.mode == "weights_heatmap":
-                self.plot_train_hybrid_weights()
-            
+                self.plot_hybrid_weights()
+
             plt.tight_layout()
             self.fig.savefig(f"{path}/seq_{seq}", bbox_inches="tight")
             plt.close()

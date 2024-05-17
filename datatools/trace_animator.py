@@ -1,32 +1,31 @@
+import math
 import os
 import sys
-import math
-import torch
-
 from typing import Dict
+
+import torch
 
 if not os.getcwd() in sys.path:
     sys.path.append(os.getcwd())
 
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-import matplotlib.patches as patches
 from matplotlib import animation, axes, collections, lines, text
 from matplotlib.patches import Rectangle
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 
 import datatools.matplotsoccer as mps
+from models.utils import compute_camera_coverage
 
-from models.utils import compute_polygon_loc
 
 class TraceAnimator:
     def __init__(
         self,
         trace_dict: Dict[str, pd.DataFrame] = None,
-        mask : pd.DataFrame = None,
+        mask: pd.DataFrame = None,
         show_times=True,
         show_episodes=False,
         show_events=False,
@@ -85,7 +84,7 @@ class TraceAnimator:
         x = traces[traces.columns[0::2]].values
         y = traces[traces.columns[1::2]].values
 
-        size = sizes[0, 0] if type(sizes) == np.ndarray else sizes
+        size = sizes[0, 0] if isinstance(sizes, np.ndarray) else sizes
         scat = ax.scatter(x[0], y[0], s=size, c=color, alpha=alpha, zorder=2)
 
         players = [c[:-2] for c in traces.columns[0::2]]
@@ -116,11 +115,22 @@ class TraceAnimator:
 
             if masks is not None:
                 c = "limegreen" if trace_key == "pred" else "purple"
-                patchs[p] = Rectangle(xy=traces.loc[0, [f"{p}_x", f"{p}_y"]], width=3, height=3, facecolor="none", edgecolor=c, alpha=0, zorder=0, linewidth=2)
+                patchs[p] = Rectangle(
+                    xy=traces.loc[0, [f"{p}_x", f"{p}_y"]],
+                    width=3,
+                    height=3,
+                    facecolor="none",
+                    edgecolor=c,
+                    alpha=0,
+                    zorder=0,
+                    linewidth=2,
+                )
                 ax.add_patch(patchs[p])
                 patchs[p].set_animated(True)
 
-                patch_annots[p] = text.Annotation(text=None, xy=(0,0), color="dimgrey", fontsize=12, zorder=4, fontweight="bold")
+                patch_annots[p] = text.Annotation(
+                    text=None, xy=(0, 0), color="dimgrey", fontsize=12, zorder=4, fontweight="bold"
+                )
                 ax.add_artist(patch_annots[p])
                 patch_annots[p].set_animated(True)
 
@@ -145,7 +155,7 @@ class TraceAnimator:
 
         scat.set_offsets(np.stack([x[t], y[t]]).T)
 
-        if type(sizes) == np.ndarray:
+        if isinstance(sizes, np.ndarray):
             scat.set_sizes(sizes[t])
 
         for p in plots.keys():
@@ -153,19 +163,23 @@ class TraceAnimator:
             inplay_end = inplay_records.at[p, "end_idx"]
             if t >= inplay_start:
                 if t <= inplay_end:
-                    t_from = max(t-20, inplay_start)
+                    t_from = max(t - 20, inplay_start)
                     # if masks is None:
                     plots[p].set_data(traces.loc[t_from:t, f"{p}_x"], traces.loc[t_from:t, f"{p}_y"])
                     annots[p].set_position(traces.loc[t, [f"{p}_x", f"{p}_y"]])
-                    
+
                     if masks is not None:
                         if masks.loc[t, f"{p}_x"] == 0:
                             patchs[p].set_xy([traces.loc[t, f"{p}_x"] - 3 / 2, traces.loc[t, f"{p}_y"] - 3 / 2])
                             patchs[p].set_alpha(1)
                             plots[p].set_alpha(1)
 
-                            patch_annots[p].set_position((traces.loc[t, f"{p}_x"]-3, traces.loc[t, f"{p}_y"]+2))
-                            patch_annots[p].set_text(TraceAnimator.calc_trace_dist(traces.loc[t, [f"{p}_x", f"{p}_y"]], target_traces.loc[t, [f"{p}_x", f"{p}_y"]]))
+                            patch_annots[p].set_position((traces.loc[t, f"{p}_x"] - 3, traces.loc[t, f"{p}_y"] + 2))
+                            patch_annots[p].set_text(
+                                TraceAnimator.calc_trace_dist(
+                                    traces.loc[t, [f"{p}_x", f"{p}_y"]], target_traces.loc[t, [f"{p}_x", f"{p}_y"]]
+                                )
+                            )
                             patch_annots[p].set_alpha(1)
                         else:
                             patchs[p].set_alpha(0)
@@ -198,7 +212,7 @@ class TraceAnimator:
             plot = None
 
         return x, y, scat, plot
-    
+
     @staticmethod
     def animate_ball(
         t: int,
@@ -215,16 +229,13 @@ class TraceAnimator:
             plot.set_data(x[t_from : t + 1], y[t_from : t + 1])
 
     @staticmethod
-    def plot_polygon(
-        ball_loc : pd.DataFrame,
-        ax=axes.Axes
-        ):
+    def plot_polygon(ball_loc: pd.DataFrame, ax=axes.Axes):
         # camera_info = (0, -20, 20, 30) # x, y, z, fov
 
         # Generate camera view shape polygon
         ball_loc = torch.tensor(np.array(ball_loc))
-        point = compute_polygon_loc(ball_loc[0])
-        shp = patches.Polygon(point, color='b', zorder=0)
+        point = compute_camera_coverage(ball_loc[0])
+        shp = patches.Polygon(point, color="b", zorder=0)
 
         # point = compute_polygon_loc(ball_loc.iloc[0], camera_info)
         # shp = patches.Polygon(point, color='b', zorder=0)
@@ -232,19 +243,15 @@ class TraceAnimator:
         # Plot camera view
         ax.add_patch(shp)
         shp.set_animated(True)
-        
+
         return ball_loc, shp
 
     @staticmethod
-    def animate_polygon(
-        t : int, 
-        ball_loc : np.ndarray, 
-        patch : Polygon
-        ):
+    def animate_polygon(t: int, ball_loc: np.ndarray, patch: Polygon):
         # camera_info = (0, -20, 20, 30) # x, y, z, fov
         # Compute polygon locations according to ball locations
         ball_loc = torch.tensor(np.array(ball_loc))
-        point = compute_polygon_loc(ball_loc[t])
+        point = compute_camera_coverage(ball_loc[t])
         # point = compute_polygon_loc(ball_loc.iloc[t], camera_info)
 
         # Update new point
@@ -257,7 +264,7 @@ class TraceAnimator:
         if self.mask is not None:
             masks = self.mask.iloc[(self.play_speed - 1) :: self.play_speed].copy()
             masks = masks.dropna(axis=1, how="all").reset_index(drop=True)
-        
+
         xy_cols = [c for c in traces.columns if c.endswith("_x") or c.endswith("_y")]
 
         if self.rotate_pitch:
@@ -288,9 +295,13 @@ class TraceAnimator:
         team2_sizes = 750
 
         alpha = 1 if trace_key == "main" else 0.5
-        
-        team1_args = self.plot_players(team1_traces, team1_targets, team1_masks, ax, team1_sizes, alpha, self.anonymize, trace_key)
-        team2_args = self.plot_players(team2_traces, team2_targets, team2_masks, ax, team2_sizes, alpha, self.anonymize, trace_key)
+
+        team1_args = self.plot_players(
+            team1_traces, team1_targets, team1_masks, ax, team1_sizes, alpha, self.anonymize, trace_key
+        )
+        team2_args = self.plot_players(
+            team2_traces, team2_targets, team2_masks, ax, team2_sizes, alpha, self.anonymize, trace_key
+        )
 
         ball_args = None
         if "ball_x" in traces.columns and traces["ball_x"].notna().any():
@@ -352,7 +363,7 @@ class TraceAnimator:
                 text_dict[col] = f"{col}: " + np.where(traces[col].isna(), "", traces[col].astype(str))
                 annot_dict[col] = ax.text(i * 54, -1, str(text_dict[col][0]), fontsize=20, ha="left", va="top")
                 annot_dict[col].set_animated(True)
-        
+
         def animate(t):
             for key in self.trace_dict.keys():
                 inplay_records = self.anim_args.at[key, "inplay_records"]
@@ -369,7 +380,7 @@ class TraceAnimator:
 
                 if self.show_polygon and key == "main":
                     camera_args = self.anim_args_camera["camera_args"]
-                    TraceAnimator.animate_polygon(t, *camera_args) 
+                    TraceAnimator.animate_polygon(t, *camera_args)
 
             if self.show_times:
                 time_annot.set_text(str(time_texts[t]))
@@ -383,7 +394,7 @@ class TraceAnimator:
             if self.annot_cols is not None:
                 for col in self.annot_cols:
                     annot_dict[col].set_text(str(text_dict[col][t]))
-            
+
             if self.show_frames is not None:
                 frame_annot.set_text(str(frame_texts[t]))
 
