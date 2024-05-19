@@ -244,13 +244,14 @@ class NFLDataHelper(TraceHelper):
     def predict(
         self,
         model: DBHP,
-        dataset_type="soccer",
-        min_episode_size=100,
+        dataset_type="afootball",
+        min_episode_size=50,
         naive_baselines=False,
         gap_models=None,
     ) -> Tuple[dict]:
         model_type = model.params["model"]
         random.seed(1000)
+        np.random.seed(1000)
 
         feature_types = ["_x", "_y", "_vx", "_vy", "_ax", "_ay"]
         player_cols = [f"player{p}{x}" for p in range(6) for x in feature_types]
@@ -301,15 +302,16 @@ class NFLDataHelper(TraceHelper):
         episodes = [e for e in self.traces["episode"].unique() if e > 0]
         for episode in tqdm(episodes, desc="Episode"):
             ep_traces = self.traces[self.traces["episode"] == episode]
-            if len(ep_traces) < self.ws:
+            if len(ep_traces) < min_episode_size:
                 continue
             ep_player_traces = torch.FloatTensor(ep_traces[player_cols].values)
-
+            ep_ball_traces = ep_player_traces.clone()
             with torch.no_grad():
                     ep_ret, ep_stats = TraceHelper.predict_episode(
                         model,
                         dataset_type,
                         ep_player_traces,
+                        ep_ball_traces,
                         pred_keys=pred_keys,
                         window_size=model.params["window_size"],
                         min_window_size=min_episode_size,
@@ -326,7 +328,11 @@ class NFLDataHelper(TraceHelper):
 
             for k in pred_keys + ["target", "mask"]:
                 if k in ["pred", "target", "mask"]:
-                    ret[k].loc[ep_traces.index, dp_cols] = np.array(ep_ret[k])
+                    cols = dp_cols if model_type == "dbhp" else pos_cols
+                    ret[k].loc[ep_traces.index, cols] = np.array(ep_ret[k])
+                    # ret[k].loc[ep_traces.index, dp_cols] = np.array(ep_ret[k])
+                elif naive_baselines and k in ["linear", "knn", "ffill"]:
+                    ret[k].loc[ep_traces.index, pos_cols] = np.array(ep_ret[k])
                 else:
                     ret[k].loc[ep_traces.index, pos_cols] = np.array(ep_ret[k])
 
