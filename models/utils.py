@@ -101,7 +101,6 @@ def is_inside(polygon_vertices, player_pos):
     missing_mask_np = np.array((1 - missing_mask))
     return missing_mask_np
 
-
 def generate_mask(
     data: Dict[str, torch.Tensor],
     sports="soccer",
@@ -121,11 +120,36 @@ def generate_mask(
         valid_frames = np.array(player_data[..., 0] != -100).astype(int).sum(axis=-1)  # [bs]
 
     if mode == "uniform":  # assert the first and the last frames are not missing
-        mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
-        window_size = player_data.shape[1]
-        missing_len = int(window_size * missing_rate)
+        bs, ws = player_data.shape[:2]
+        mask = np.ones((bs, ws, n_players))  # [bs, time, players]
 
-        mask[:, random.sample(range(1, window_size - 1), missing_len)] = 0
+        if sports == "afootball":
+            num_missing = random.randint(40, 49)
+            missing_list_np = np.array(random.sample(range(ws), num_missing))
+            mask[:, missing_list_np] = 0
+        else:
+            block_len = int(ws * missing_rate) # total missing values
+
+            start_idx = random.randint(1, ws-block_len)
+            end_idx = start_idx + block_len
+            
+            mask[:, start_idx: end_idx, :] = 0
+        
+        mask[:, 0] = 1
+        mask[:, -1] = 1
+
+        # mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        # missing_frames = (valid_frames * missing_rate).astype(int)  # [bs], number of missing values per player
+        # # start_idxs = np.random.randint(1, valid_frames - missing_len - 1)
+        # # end_idxs = start_idxs + missing_len
+        # for i in range(mask.shape[0]):
+        #     mask[i, start_idxs[i] : end_idxs[i]] = 0
+
+        # mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
+        # window_size = player_data.shape[1]
+        # missing_len = int(window_size * missing_rate)
+
+        # mask[:, random.sample(range(1, window_size - 1), missing_len)] = 0
         # if sports == "afootball":
         #     window_size = player_data.shape[1]
         #     mask = np.ones((window_size, n_players))
