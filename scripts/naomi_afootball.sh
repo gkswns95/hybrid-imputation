@@ -1,6 +1,6 @@
-#!/bin/bash
+CUDA_VISIBLE_DEVICES=6 \
 python train.py \
---trial 9999 \
+--trial 602 \
 --dataset afootball \
 --model naomi \
 --missing_pattern uniform \
@@ -9,7 +9,7 @@ python train.py \
 --player_order xy_sort \
 --team_size 6 \
 --n_features 2 \
---window_size 200 \
+--window_size 50 \
 --window_stride 5 \
 --n_epochs 100 \
 --start_lr 1e-3 \

@@ -217,7 +217,7 @@ class NRTSIImputer(nn.Module):
             self.x_dim = params["n_features"]
             self.y_dim = params["n_features"]
         else:
-            if params["dataset"] == "football":
+            if params["dataset"] == "afootball":
                 self.x_dim = self.n_players * params["n_features"]
             else:
                 self.x_dim = (self.n_players * 2) * params["n_features"]

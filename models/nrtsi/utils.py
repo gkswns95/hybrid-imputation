@@ -12,7 +12,6 @@ from torch.autograd import Variable
 
 matplotlib.use("Agg")
 
-
 def nll_gauss(gt, pred, eps=1e-6):
     pred_mean = pred[:, :, : gt.shape[-1]]
     pred_std = F.softplus(pred[:, :, gt.shape[-1] :]) + eps
@@ -20,7 +19,6 @@ def nll_gauss(gt, pred, eps=1e-6):
     LL = normal_distri.log_prob(gt)
     NLL = -LL.sum(-1).mean()
     return NLL
-
 
 def sample_gauss(pred, gt, gap, eps=1e-6):
     pred_mean = pred[:, :, : gt.shape[-1]]

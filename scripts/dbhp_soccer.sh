@@ -1,9 +1,9 @@
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=3 \
 python train.py \
---trial 153 \
+--trial 300 \
 --dataset soccer \
 --model dbhp \
---missing_pattern camera \
+--missing_pattern uniform \
 --missing_rate 0.5 \
 --normalize \
 --flip_pitch \

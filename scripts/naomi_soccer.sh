@@ -1,6 +1,6 @@
-#!/bin/bash
+CUDA_VISIBLE_DEVICES=5 \
 python train.py \
---trial 9999 \
+--trial 600 \
 --dataset soccer \
 --model naomi \
 --missing_pattern uniform \

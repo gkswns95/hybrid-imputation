@@ -114,7 +114,6 @@ class NRTSI(nn.Module):
                         imputations_ = reshape_tensor(
                             imputations, upscale=False, n_features=n_features, dataset_type=self.params["dataset"]
                         ).flatten(2, 3)
-
                         total_loss += nll_gauss(gt_data_, imputations_)
                         imputations = sample_gauss(imputations, gt_data, gap=gap)
                     else:
@@ -140,6 +139,7 @@ class NRTSI(nn.Module):
 
                     if not teacher_forcing:
                         obs_data = torch.cat([obs_data, imputations], dim=1)  # [bs, n_imp + n_obs, y_dim]
+        
             ret["total_loss"] = total_loss / num_levels
             ret["pred_pe"] = pos_dist / missing_frames
             ret["missing_rate"] = missing_rate

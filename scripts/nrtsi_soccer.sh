@@ -1,6 +1,6 @@
-#!/bin/bash
+CUDA_VISIBLE_DEVICES=2 \
 python train.py \
---trial 9999 \
+--trial 500 \
 --dataset soccer \
 --model nrtsi \
 --missing_pattern uniform \
@@ -14,7 +14,8 @@ python train.py \
 --window_stride 5 \
 --n_epochs 3100 \
 --start_lr 1e-4 \
---min_lr 1e-3 \
+--min_lr 1e-5 \
+--clip 10 \
 --batch_size 16 \
 --print_every_batch 50 \
 --save_every_epoch 50 \

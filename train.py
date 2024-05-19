@@ -223,16 +223,17 @@ if __name__ == "__main__":
         train_paths = metrica_paths[:-1]
         valid_paths = metrica_paths[-1:]
         window_size = args.window_size
-        episode_min_len = 100
+        episode_min_len = 200
 
     elif args.dataset == "basketball":  # Basketball (NBA) dataset
         nba_files = os.listdir("data/nba_traces")
         nba_paths = [f"data/nba_traces/{f}" for f in nba_files]
         nba_paths.sort()
         train_paths = nba_paths[:70]
-        valid_paths = nba_paths[70:90]
+        valid_paths = nba_paths[70:80]
+        # valid_paths = nba_paths[70:90]
         window_size = args.window_size
-        episode_min_len = 100
+        episode_min_len = 200
 
     else:  # American football (NFL) dataset
         nfl_paths = ["data/nfl_traces/nfl_train.csv", "data/nfl_traces/nfl_test.csv"]

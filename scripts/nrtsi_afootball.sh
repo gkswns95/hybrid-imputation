@@ -1,14 +1,25 @@
-#!/bin/bash
+CUDA_VISIBLE_DEVICES=4 \
 python train.py \
---trial 6002 \
---dataset football \
+--trial 502 \
+--dataset afootball \
 --model nrtsi \
---target_type imputation \
 --missing_pattern uniform \
---n_players 6 \
+--missing_rate 0.5 \
+--normalize \
+--player_order xy_sort \
+--team_size 6 \
 --n_features 2 \
---train_nfl \
---valid_nfl \
+--window_size 50 \
+--window_stride 5 \
+--n_epochs 3100 \
+--start_lr 1e-4 \
+--min_lr 1e-5 \
+--clip 10 \
+--batch_size 16 \
+--print_every_batch 50 \
+--save_every_epoch 50 \
+--seed 100 \
+--cuda \
 --n_max_time_scale 100 \
 --time_enc_dim 8 \
 --att_dim 128 \
@@ -20,16 +31,6 @@ python train.py \
 --n_heads 12 \
 --n_max_level 4 \
 --cartesian_accel \
---use_mask \
+--use_ta \
 --stochastic \
---n_epochs 3100 \
---start_lr 1e-4 \
---min_lr 1e-3 \
---batch_size 16 \
---print_every_batch 50 \
---save_every_epoch 50 \
---seed 100 \
---clip 0.01 \
---max_iter_num 80000 \
---cuda \
---flip_pitch \
+--use_mask \
