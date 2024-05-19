@@ -123,7 +123,9 @@ def generate_mask(
         mask = np.ones((player_data.shape[0], player_data.shape[1], n_players))  # [bs, time, players]
 
         if sports == "afootball":
-            missing_len = random.randint(40, 49)
+            missing_len = random.randint(40, 48)
+            print(f"valid_frames[0] : {valid_frames[0]}")
+            print(f"missing_len : {missing_len}")
             mask[:, random.sample(range(1, valid_frames[0] -1), missing_len)] = 0
         else:
             missing_len = int(valid_frames[0] * missing_rate)
