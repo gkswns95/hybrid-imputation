@@ -232,10 +232,10 @@ def shuffle_players(tensor: torch.Tensor, n_players=22, shuffled_idxs=None):
     shuffled_idxs = torch.zeros((bs, n_players))
 
     for batch in range(bs):
-        # rand_idx = np.random.permutation(players)
-        rand_idxs = torch.randperm(n_players)
-        shuffled_tensor[batch, :] = tensor[batch, :, rand_idxs]
-        shuffled_idxs[batch] = rand_idxs
+        rand_idx = np.random.permutation(n_players)
+        # rand_idxs = torch.randperm(n_players)
+        shuffled_tensor[batch, :] = tensor[batch, :, rand_idx]
+        shuffled_idxs[batch] = torch.tensor(rand_idx)
 
     return shuffled_tensor.flatten(2, 3), shuffled_idxs  # [bs, time, players * feats], [bs, players]
 

@@ -45,15 +45,17 @@ class NRTSI(nn.Module):
         ret = {"loss": 0, "pred_pe": 0}
 
         n_features = self.params["n_features"]
-        n_players = self.params["team_size"] if self.params["dataset"] == "afootball" else self.params["team_size"] * 2
+        total_players = self.params["team_size"]
+        if self.params["dataset"] in ["soccer", "basketball"]:
+            total_players *= 2
 
         if mode == "train":
             min_gap, max_gap = data[2], data[3]
 
         if self.params["player_order"] == "shuffle":
-            player_data, player_orders = shuffle_players(data[0], n_players=n_players)
+            player_data, _ = shuffle_players(data[0], n_players=total_players)
         elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
-            player_data, player_orders = sort_players(data[0], n_players=n_players)
+            player_data, player_orders = sort_players(data[0], n_players=total_players)
         else:
             player_data, player_orders = data[0], None  # [bs, time, players * 6]
 
@@ -71,14 +73,14 @@ class NRTSI(nn.Module):
         mask_data = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)
         mask_data = torch.repeat_interleave(mask_data, 6, dim=-1)
 
-        player_data = player_data.reshape(bs, seq_len, n_players, -1)[..., : n_features].flatten(2, 3) # [bs, time, x] = [bs, time, players * feats]
+        player_data = player_data.reshape(bs, seq_len, total_players, -1)[..., : n_features].flatten(2, 3) # [bs, time, x] = [bs, time, players * feats]
         target_data = player_data.clone()
-        mask_data = mask_data.reshape(bs, seq_len, n_players, -1)[..., : n_features].flatten(2, 3)
+        mask_data = mask_data.reshape(bs, seq_len, total_players, -1)[..., : n_features].flatten(2, 3)
 
         mask = mask_data.clone()
 
         if self.params["cuda"]:
-            player_data, target_data, mask_data = player_data.to(device), target_data.to(device), mask_data.to(device)
+            player_data, target_data, mask_data, mask = player_data.to(device), target_data.to(device), mask_data.to(device), mask.to(device)
 
         total_loss = Variable(torch.tensor(0.0), requires_grad=True).to(device)
 
@@ -194,14 +196,16 @@ class NRTSI(nn.Module):
 
                 ret["pred_pe"] = torch.norm(pred_ - target_, dim=-1).sum()
                 ret["pred"] = pred
+                ret["input"] = player_data * mask
                 ret["target"] = target_data
                 ret["mask"] = mask
                 ret["missing_rate"] = missing_rate
 
                 if player_orders is not None:
-                    ret["pred"] = sort_players(ret["pred"], player_orders, n_players, mode="restore")
-                    ret["target"] = sort_players(ret["target"], player_orders, n_players, mode="restore")
-                    ret["mask"] = sort_players(ret["mask"], player_orders, n_players, mode="restore")
+                    ret["input"] = sort_players(ret["input"], player_orders, total_players, mode="restore")
+                    ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
+                    ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
+                    ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")
 
         return ret
 

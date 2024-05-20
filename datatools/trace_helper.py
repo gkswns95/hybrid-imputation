@@ -288,7 +288,7 @@ class TraceHelper:
             stats[f"{k}_sce"] = errors[2]  # step_change_error
             stats[f"{k}_ple"] = errors[3]  # path_length_error
             # print(f"key : {k}, pe : {errors[0]}")
-
+        
         return ret, stats
 
     def predict(
