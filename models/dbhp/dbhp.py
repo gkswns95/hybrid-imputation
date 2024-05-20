@@ -49,16 +49,23 @@ class DBHP(nn.Module):
             self.model = DBHPImputer(self.params)
 
     def forward(self, data: Tuple[torch.Tensor], mode="train", device="cuda:0"):
+        total_players = self.params["team_size"]
+        if self.params["dataset"] in ["soccer", "basketball"]:
+            total_players *= 2
+
         if "uniagent" not in self.params:
             self.params["uniagent"] = False
         if "player_order" not in self.params:
             self.params["player_order"] = None
-
+        if mode == "test":
+            self.params["player_order"] = "shuffle" if self.params["dataset"] == "afootball" else "xy_sort"
         # if mode == "test" and self.params["dataset"] == "afootball":  # shuffle the players' order
+        
         if self.params["player_order"] == "shuffle":
-            player_data, player_orders = shuffle_players(data[0], n_players=self.params["team_size"] * 2)
+            player_data, _ = shuffle_players(data[0], n_players=total_players)
+            player_orders = None
         elif mode == "test" or self.params["player_order"] == "xy_sort":  # sort players by x+y values
-            player_data, player_orders = sort_players(data[0], n_players=self.params["team_size"] * 2)
+            player_data, player_orders = sort_players(data[0], n_players=total_players)
         else:
             player_data, player_orders = data[0], None  # [bs, time, x] = [bs, time, players * feats]
 
@@ -144,10 +151,10 @@ class DBHP(nn.Module):
             )
 
         if player_orders is not None:
-            ret["input"] = sort_players(ret["input"], player_orders, self.params["team_size"] * 2, mode="restore")
-            ret["mask"] = sort_players(ret["mask"], player_orders, self.params["team_size"] * 2, mode="restore")
-            ret["target"] = sort_players(ret["target"], player_orders, self.params["team_size"] * 2, mode="restore")
+            ret["input"] = sort_players(ret["input"], player_orders, total_players, mode="restore")
+            ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")
+            ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
             for k in pred_keys:
-                ret[k] = sort_players(ret[k], player_orders, self.params["team_size"] * 2, mode="restore")
+                ret[k] = sort_players(ret[k], player_orders, total_players, mode="restore")
 
         return ret

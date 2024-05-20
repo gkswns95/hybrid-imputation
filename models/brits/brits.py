@@ -37,8 +37,9 @@ class BRITS(nn.Module):
             self.params["player_order"] = None
 
         if self.params["player_order"] == "shuffle":
-            player_data, player_orders = shuffle_players(data[0], n_players=total_players)
-        elif mode == "test" or self.params["player_order"] == "xy_sort":  # sort players by x+y values
+            player_data, _ = shuffle_players(data[0], n_players=total_players)
+            player_orders = None
+        elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
             player_data, player_orders = sort_players(data[0], n_players=total_players)
         else:
             player_data, player_orders = data[0], None  # [bs, time, x] = [bs, time, players * feats]
