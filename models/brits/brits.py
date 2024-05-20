@@ -73,6 +73,7 @@ class BRITS(nn.Module):
         ret = self.merge_ret(ret_f, ret_b, mode)
 
         if player_orders is not None:
+            ret["input"] = sort_players(ret["input"], player_orders, total_players, mode="restore")
             ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
             ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
             ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")

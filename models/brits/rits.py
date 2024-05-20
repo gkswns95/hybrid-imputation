@@ -108,9 +108,9 @@ class RITS(nn.Module):
         bs, seq_len = input.shape[:2]
 
         input = input.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3) # [time, bs, players * feats]
+        target = target.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3) # [time, bs, players * feats]
         mask = mask.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3)
         delta = delta.reshape(bs, seq_len, self.n_players, -1)[..., : self.n_features].flatten(2, 3)
-
 
         h = Variable(torch.zeros((bs, self.rnn_dim))).to(device)
         c = Variable(torch.zeros((bs, self.rnn_dim))).to(device)
@@ -160,6 +160,11 @@ class RITS(nn.Module):
             pred_xy = reshape_tensor(out, dataset_type=self.dataset)  # [bs, total_players, -1]
             total_loss += torch.sum(torch.abs(pred_xy - target_xy) * (1 - mask_xy)) / torch.sum((1 - mask_xy))
 
-        ret.update({"loss": total_loss, "pred": pred})
+        ret.update({
+            "loss": total_loss, 
+            "pred": pred, 
+            "target": target,
+            "input" : input,
+            "mask" : mask})
         
         return ret
