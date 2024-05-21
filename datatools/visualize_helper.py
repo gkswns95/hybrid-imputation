@@ -40,7 +40,7 @@ class VisualizeHelper:
             players = ["player" + str(i) for i in range(helper.total_players)]
 
         self.p_cols = [f"{p}{f}" for p in players for f in ["_x", "_y"]]
-        if "hybrid_df" in df_dict.keys():
+        if "hybrid_d" in df_dict.keys():
             self.w_cols = [f"{p}{w}" for p in players for w in ["_w0", "_w1", "_w2"]]
 
     def valid_episodes(self):
@@ -59,34 +59,34 @@ class VisualizeHelper:
         pred_keys = {}
         fs = (16, 3)
         if self.mode == "imputed_traj":
-            fs = (16, 5)
+            fs = (16, 5) # width, height
             pred_keys.update(
                 {
                     "mask": "mask",
                     "target": "Ground Truth",
-                    "hybrid_d": "STRNN-DBHP",
-                    "nrtsi": "NRTSI",
-                    "graph_imputer": "GraphImputer",
-                    "naomi": "NAOMI",
-                    "brits": "BRITS",
-                    "linear": "Linear",
-                    "knn": "KNN",
+                    "hybrid_d": "DBHP-D",
+                    "knn": "k-NN",
+                    "linear": "Linear Interpolation",
+                    "linear_4": "BRITS",
+                    "linear_3": "NAOMI",
+                    "linear_1": "NRTSI",
+                    "linear_2": "Graph Imputer",
                 }
             )
         elif self.mode == "dist_heatmap":
             pred_keys.update(
                 {
-                    "pred": "STRNN-DP",
-                    "dap_f": "STRNN-DAP-F",
-                    "dap_b": "STRNN-DAP-B",
-                    "hybrid_s2": "STRNN-DBHP-S",
-                    "hybrid_d": "STRNN-DBHP-D",
+                    "pred": "",
+                    "dap_f": "",
+                    "dap_b": "",
+                    "hybrid_s2": "",
+                    "hybrid_d": "",
                 }
             )
         elif self.mode == "weights_heatmap":
             pred_keys["lambdas"] = "lambdas"
 
-        pred_keys.update({"target": "GroundTruth", "mask": "mask"})
+        pred_keys.update({"target": "Ground Truth", "mask": "mask"})
 
         return pred_keys, fs
 
@@ -99,7 +99,7 @@ class VisualizeHelper:
             # For debugging
             if key.startswith("tmp"):
                 key = "linear"
-            ax = self.fig.add_subplot(2, 4, i)
+            ax = self.fig.add_subplot(4, 2, i)
             ax.set_xlim(0, ps[0])
             ax.set_ylim(0, ps[1])
 
@@ -124,9 +124,12 @@ class VisualizeHelper:
                 # plt.subplots_adjust(wspace=0.1)
             elif self.dataset == "basketball":
                 court = plt.imread("img/basketball_court.png")
-                s1 = 10
-                s2 = 20
-                lw = 1.5
+                s1 = 1
+                s2 = 2
+                lw = 1
+                # s1 = 10
+                # s2 = 20
+                # lw = 1.5
                 c = ["#7D3C98", "#00A591", "#3B3B98", "#E89B98", "#FAB5DA"]
                 ax.imshow(court, zorder=0, extent=[0, ps[0], ps[1], 0])
 
@@ -160,7 +163,7 @@ class VisualizeHelper:
                     labelbottom=False,
                     labelleft=False,
                 )
-                ax.set_title(title.format(i + 1), fontsize=20, loc="center")
+                ax.set_title(title.format(i + 1), fontsize=10, loc="center")
 
     def plot_hybrid_weights(self):
         mask = self.pred_dict["window_mask"]
@@ -173,11 +176,11 @@ class VisualizeHelper:
         for i, title in enumerate(["STRNN-DP", "STRNN-DAP-F", "STRNN-DAP-B"]):
             ax = self.fig.add_subplot(1, 4, i + 1)
 
-            sns.heatmap(lambdas[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax)
+            sns.heatmap(lambdas[:, i::3], cmap="viridis", cbar=True, mask=m, ax=ax, vmin=0, vmax=1)
 
-            ax.set_xlabel("Agents", fontsize=12)
-            ax.set_ylabel("Timesteps", fontsize=12)
-            ax.set_title(title.format(i + 1), fontsize=20, loc="center")
+            ax.set_xlabel("Agent", fontsize=12)
+            ax.set_ylabel("Time step", fontsize=12)
+            # ax.set_title(title.format(i + 1), fontsize=20, loc="center")
 
             ax.set_yticks([0, 50, 100, 150, 200])
             ax.set_yticklabels([0, 50, 100, 150, 200], rotation=0)
@@ -203,7 +206,11 @@ class VisualizeHelper:
             m = m[..., 1].squeeze(-1)
             m = np.array((m == 1))
 
-            sns.heatmap(pred_dist, cmap="viridis", cbar=True, mask=m, ax=ax)
+            sns.heatmap(pred_dist
+                        , cmap="viridis", 
+                        cbar=True, 
+                        mask=m, 
+                        ax=ax)
 
             ax.set_title(f"{title} L2 distance")
             ax.set_xlabel("Agents", fontsize=12)
@@ -247,7 +254,11 @@ class VisualizeHelper:
                     continue
 
                 cols = self.w_cols if key == "lambdas" else self.p_cols
-                epi_df = self.df_dict[f"{key}_df"][self.df_dict[f"{key}_df"]["episode"] == e][cols]
+                if key.startswith("linear"):
+                    epi_df = self.df_dict["linear"][self.df_dict["linear"]["episode"] == e][cols]    
+                else:
+                    epi_df = self.df_dict[key][self.df_dict[key]["episode"] == e][cols]
+                # epi_df = self.df_dict[f"{key}_df"][self.df_dict[f"{key}_df"]["episode"] == e][cols]
                 epi_df = epi_df[i_from:i_to].replace(-1, np.nan)
                 self.pred_dict[f"window_{key}"] = torch.tensor(epi_df.dropna(axis=1).values)
 
@@ -260,5 +271,6 @@ class VisualizeHelper:
                 self.plot_hybrid_weights()
 
             plt.tight_layout()
+            # plt.subplots_adjust(wspace=-0.5, hspace=0.3)
             self.fig.savefig(f"{path}/seq_{seq}", bbox_inches="tight")
             plt.close()

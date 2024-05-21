@@ -258,8 +258,10 @@ class NBADataHelper(TraceHelper):
 
         if model_type == "dbhp" and model.params["dynamic_hybrid"]:
             lambda_types = ["_w0", "_w1"] if model.params["missing_pattern"] == "forecast" else ["_w0", "_w1", "_w2"]
-            lambda_cols = [f"{p}{w}" for p in range(10) for w in lambda_types]
+            lambda_cols = [f"player{p}{w}" for p in range(10) for w in lambda_types]
             ret["lambdas"] = pd.DataFrame(-1, index=self.traces.index, columns=lambda_cols)
+            ret["lambdas"].loc[:, "episode"] = self.traces["episode"]
+
 
         x_cols = [c for c in self.traces.columns if c.endswith("_x")]
         y_cols = [c for c in self.traces.columns if c.endswith("_y")]
