@@ -1,6 +1,6 @@
 CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 402 \
+--trial 108 \
 --dataset soccer \
 --model brits \
 --missing_pattern camera \
@@ -15,11 +15,10 @@ python train.py \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
---batch_size 128 \
+--batch_size 64 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
 --cuda \
 --rnn_dim 512 \
 --dropout 0.0 \
---cartesian_accel \

@@ -8,7 +8,6 @@ from torch.autograd import Variable
 from models.brits.rits import RITS
 from models.utils import *
 
-
 class BRITS(nn.Module):
     def __init__(self, params, parser=None):
         super(BRITS, self).__init__()
@@ -54,7 +53,7 @@ class BRITS(nn.Module):
             missing_rate=self.params["missing_rate"],
         )  # [bs, time, players]
 
-        time_gap = time_interval(mask, list(range(mask.shape[1])), mode="camera")
+        time_gap = time_interval(mask, list(range(mask.shape[1])))
         mask = torch.tensor(mask, dtype=torch.float32)  # [bs, time, team_size]
         mask = torch.repeat_interleave(mask, 6, dim=-1)
         time_gap = torch.repeat_interleave(time_gap, 6, dim=-1)
@@ -117,8 +116,26 @@ class BRITS(nn.Module):
 
             return tensor_.index_select(1, indices)
 
+        reversed_ret = dict()
         for key in ret:
             if not key.endswith("_loss") and not key.endswith("_rate") and not key.endswith("ball"):
-                ret[key] = reverse_tensor(ret[key])
+                reversed_ret[key] = reverse_tensor(ret[key])
 
-        return ret
+        return reversed_ret
+    # def reverse(self, ret):
+    #     def reverse_tensor(tensor_):
+    #         device = tensor_.device
+    #         if tensor_.dim() <= 1:
+    #             return tensor_
+    #         indices = range(tensor_.size()[1])[::-1]
+    #         indices = Variable(torch.LongTensor(indices), requires_grad=False)
+
+    #         indices = indices.to(device)
+
+    #         return tensor_.index_select(1, indices)
+
+    #     for key in ret:
+    #         if not key.endswith("_loss") and not key.endswith("_rate") and not key.endswith("ball"):
+    #             ret[key] = reverse_tensor(ret[key])
+
+    #     return ret
