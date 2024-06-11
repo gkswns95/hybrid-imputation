@@ -36,7 +36,8 @@ class BRITS(nn.Module):
             self.params["player_order"] = None
 
         if self.params["player_order"] == "shuffle":
-            player_data, _ = shuffle_players(data[0], n_players=total_players)
+            # player_data = random_permutation(data[0], total_players) # Prev version
+            player_data, _ = shuffle_players(data[0], n_players=total_players) # Curr version
             player_orders = None
         elif self.params["player_order"] == "xy_sort":  # sort players by x+y values
             player_data, player_orders = sort_players(data[0], n_players=total_players)
@@ -73,10 +74,10 @@ class BRITS(nn.Module):
         ret = self.merge_ret(ret_f, ret_b, mode)
 
         if player_orders is not None:
-            ret["input"] = sort_players(ret["input"], player_orders, total_players, mode="restore")
-            ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
-            ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
             ret["mask"] = sort_players(ret["mask"], player_orders, total_players, mode="restore")
+            ret["input"] = sort_players(ret["input"], player_orders, total_players, mode="restore")
+            ret["target"] = sort_players(ret["target"], player_orders, total_players, mode="restore")
+            ret["pred"] = sort_players(ret["pred"], player_orders, total_players, mode="restore")
 
         return ret
 
