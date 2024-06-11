@@ -125,6 +125,10 @@ def generate_mask(
         if sports == "afootball":
             missing_len = random.randint(40, 48)
             mask[:, random.sample(range(1, valid_frames[0] -1), missing_len)] = 0
+            # missing_len = random.randint(40, 49) # prev
+            # mask[:, random.sample(range(valid_frames[0]), missing_len)] = 0
+            # mask[:, 0] = 1
+            # mask[:, -1] = 1
         else:
             missing_len = int(valid_frames[0] * missing_rate)
             start_idx = np.random.randint(1, valid_frames[0] - missing_len - 1)
@@ -208,8 +212,7 @@ def compute_deltas(mask: np.ndarray, bidirectional=True) -> Tuple[np.ndarray]:
     else:
         return deltas_f  # [bs, time, players]
 
-
-def time_interval(mask, time_gap, direction="f", mode="block"):
+def time_interval(mask, time_gap, direction="f"):
     if direction == "b":
         mask = np.flip(deepcopy(mask), axis=[0])  
 
@@ -223,7 +226,21 @@ def time_interval(mask, time_gap, direction="f", mode="block"):
 
     return torch.tensor(deltas, dtype=torch.float32)
 
+def random_permutation(input, players=6, permutations=None):
+    bs, seq_len = input.shape[:2]
+    input_ = input.reshape(bs, seq_len, players, -1) # [bs, time, players, feat_dim]
+    
+    permuted_input = input_.clone()
+    permutations = np.zeros((bs, players))
+    for batch in range(bs):
+        # rand_idx = np.random.permutation(players)  
+        rand_idx = [0,1,2,3,4,5]  
+        random.shuffle(rand_idx)
+        permuted_input[batch, :] = input_[batch, :, rand_idx]
+        permutations[batch] = rand_idx
 
+    return permuted_input.flatten(2,3)
+    
 def shuffle_players(tensor: torch.Tensor, n_players=22, shuffled_idxs=None):
     bs, seq_len = tensor.shape[:2]
     tensor = tensor.reshape(bs, seq_len, n_players, -1)  # [bs, time, players, feats]
@@ -270,7 +287,6 @@ def sort_players(tensor: torch.Tensor, orig_idxs: torch.LongTensor = None, n_pla
             restored_tensor[batch] = tensor[batch, :, batch_orig_idxs, :]
 
         return restored_tensor.flatten(2, 3)  # [bs, time, players * feats]
-
 
 def num_trainable_params(model):
     total = 0
@@ -422,15 +438,18 @@ def calc_step_change_and_path_length_errors(
     pred_pos = mask_pos * target_pos + (1 - mask_pos) * pred_pos
 
     step_size = torch.norm(pred_pos[1:] - pred_pos[:-1], dim=-1)  # [time, players]
-    pred_speed = (step_size / 0.1).std(0)  # [players]
+    pred_change_of_step_size = step_size.std(0)  # [players]
+    # pred_speed = (step_size / 0.1).std(0)  # [players]
     pred_dist = step_size.sum(0)
 
     step_size = torch.norm(target_pos[1:] - target_pos[:-1], dim=-1)  # [time, players]
-    target_speed = (step_size / 0.1).std(0)  # [players]
+    target_change_of_step_size = step_size.std(0) # [players]
+    # target_speed = (step_size / 0.1).std(0)  # [players]
     target_dist = step_size.sum(0)
 
-    sc_error = torch.abs(pred_speed - target_speed).sum().item()
-    pl_error = (torch.abs(pred_dist - target_dist) / target_dist).sum().item()
+    sc_error = torch.abs(pred_change_of_step_size - target_change_of_step_size).sum().item()
+    pl_error = (torch.abs(pred_dist - target_dist)).sum().item()
+    # pl_error = (torch.abs(pred_dist - target_dist) / target_dist).sum().item()
 
     return sc_error, pl_error
 
@@ -459,6 +478,8 @@ def calc_pred_errors(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tenso
     # speed_error = calc_speed_error(pred_traces_, target_traces_, mask_, dataset)
 
     # [time, players * feats] -> [time, players * 2]
+    # pred = reshape_tensor(pred, dataset_type=dataset_type, upscale=True) # debug
+    # target = reshape_tensor(target, dataset_type=dataset_type, upscale=True)
     pred = reshape_tensor(pred, dataset_type=dataset_type, upscale=False)
     target = reshape_tensor(target, dataset_type=dataset_type, upscale=False)
     mask = reshape_tensor(mask, dataset_type=dataset_type, upscale=False)
