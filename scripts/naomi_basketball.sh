@@ -15,7 +15,7 @@ python train.py \
 --n_epochs 100 \
 --start_lr 1e-3 \
 --min_lr 1e-5 \
---batch_size 128 \
+--batch_size 64 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
@@ -28,5 +28,4 @@ python train.py \
 --dec16_dim 200 \
 --n_layers 2 \
 --n_highest 4 \
---cartesian_accel \
 --stochastic \

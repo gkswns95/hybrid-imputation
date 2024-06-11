@@ -1,11 +1,10 @@
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 304 \
+--trial 600 \
 --dataset afootball \
 --model dbhp \
---missing_pattern uniform \
+--missing_pattern playerwise \
 --missing_rate 0.5 \
---normalize \
 --team_size 6 \
 --n_features 6 \
 --window_size 50 \

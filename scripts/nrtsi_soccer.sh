@@ -16,7 +16,7 @@ python train.py \
 --start_lr 1e-4 \
 --min_lr 1e-5 \
 --clip 10 \
---batch_size 16 \
+--batch_size 128 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
@@ -31,7 +31,6 @@ python train.py \
 --n_layers 8 \
 --n_heads 12 \
 --n_max_level 4 \
---cartesian_accel \
 --use_ta \
 --stochastic \
 --use_mask \

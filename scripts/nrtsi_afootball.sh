@@ -1,12 +1,12 @@
-CUDA_VISIBLE_DEVICES=4 \
+CUDA_VISIBLE_DEVICES=6 \
 python train.py \
---trial 502 \
+--trial 302 \
 --dataset afootball \
 --model nrtsi \
 --missing_pattern uniform \
 --missing_rate 0.5 \
 --normalize \
---player_order xy_sort \
+--player_order shuffle \
 --team_size 6 \
 --n_features 2 \
 --window_size 50 \
@@ -15,7 +15,7 @@ python train.py \
 --start_lr 1e-4 \
 --min_lr 1e-5 \
 --clip 10 \
---batch_size 16 \
+--batch_size 128 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
@@ -30,7 +30,6 @@ python train.py \
 --n_layers 8 \
 --n_heads 12 \
 --n_max_level 4 \
---cartesian_accel \
 --use_ta \
 --stochastic \
 --use_mask \

@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=3 \
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 501 \
+--trial 301 \
 --dataset basketball \
 --model nrtsi \
 --missing_pattern uniform \
@@ -12,11 +12,11 @@ python train.py \
 --n_features 2 \
 --window_size 200 \
 --window_stride 5 \
---n_epochs 3100 \
+--n_epochs 500 \
 --start_lr 1e-4 \
 --min_lr 1e-5 \
 --clip 10 \
---batch_size 16 \
+--batch_size 128 \
 --print_every_batch 50 \
 --save_every_epoch 50 \
 --seed 100 \
@@ -31,7 +31,6 @@ python train.py \
 --n_layers 8 \
 --n_heads 12 \
 --n_max_level 4 \
---cartesian_accel \
 --use_ta \
 --stochastic \
 --use_mask \

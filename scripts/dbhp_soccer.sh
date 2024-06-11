@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=3 \
+CUDA_VISIBLE_DEVICES=0 \
 python train.py \
---trial 300 \
+--trial 0 \
 --dataset soccer \
 --model dbhp \
 --missing_pattern uniform \
